@@ -1,0 +1,33 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "5d9fb0074152e9f75b4e81672c29a0a2"
+application_url = "https://ebony-refine-specialties-highland.trycloudflare.com"
+embedded = true
+name = "reviewSuiteApp"
+handle = "reviewsuiteapp"
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "tespapp.myshopify.com"
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products, write_metaobject_definitions, read_metaobjects, write_metaobjects"
+
+[auth]
+redirect_urls = [
+  "https://ebony-refine-specialties-highland.trycloudflare.com/auth/callback",
+  "https://ebony-refine-specialties-highland.trycloudflare.com/auth/shopify/callback",
+  "https://ebony-refine-specialties-highland.trycloudflare.com/api/auth/callback"
+]
+
+[pos]
+embedded = false

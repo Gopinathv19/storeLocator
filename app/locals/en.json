@@ -1,0 +1,78 @@
+{
+  "nav_bar": {
+    "links": [
+      { "content": "", "path": "/app" },
+      { "content": "Dashboard", "path": "/app/dashboard" },
+      { "content": "My Reviews", "path": "/app/my_reviews" },
+      { "content": "Widgets", "path": "/app/widgets" },
+      { "content": "Settings", "path": "/app/settings" },
+      { "content": "InitForm", "path": "/app/init_form" }
+    ]
+  },
+
+  "plan_page": {
+    "heading": "Welcome to Review Suite",
+    "description": "We will automatically gather, analyse all the reviews and showcase the most compelling product reviews, turning satisfied customers into your most effective salespeople",
+    "heading_2": "Select a Subscription plan to proceed",
+    "free_plan_button": "Subscripe Now",
+    "monthly_plan_button": "Subscripe Now",
+    "monthly_plan_prefix": "$",
+    "montly_plan_text": "/month",
+    "yearly_plan_button": "Yearly Plan",
+    "yearly_plan_prefix": "$",
+    "yearly_plan_text": "/year",
+    "img_src": "https://ik.imagekit.io/1tudtg11f/Group%201000006811.jpg?updatedAt=1716987244600"
+  },
+  "onboarding": {
+    "heading_1": "Almost there, Lets dive in!",
+    "description_1": "Unlock trust and credibility with authentic reviews. Your strategic partner Reviewsuite by your side",
+    "img_1": "https://ik.imagekit.io/x3tjafdwm/ReviewSuite/Import.svg?updatedAt=1697097370177",
+    "heading_2": "Import Reviews",
+    "description_2": "We suggest you to keep it centralized. Import all your reviews ffrom other platforms right away",
+    "button_1": "Import Now",
+    "img_2": "https://ik.imagekit.io/x3tjafdwm/ReviewSuite/Explore.svg?updatedAt=1697097369554",
+    "heading_3": "Get Started",
+    "description_3": "Go ahead wit ReviewSuite, you can import your stores's exisiting reviews later at your convenience.",
+    "button_2": "Get started",
+    "button_3": "How do I use review suite",
+    "modal_1_heading": "Choose Plan Navigate",
+    "modal_1_description": "You are in free plan. Are you sure to continue in free plan with limited access (or) get more features with paid plan",
+    "modal_1_button_1": "Limited Access",
+    "modal_1_button_2": "Get More Features"
+  },
+  "init_form":{
+    "step1_heading_1": "Welcome to Review Suite",
+    "step1_description_1":"Let's get your review collection started in 2 minutes",
+    "step1_option_1":"Collect Reviews",
+    "step1_option_1_description":"Automatic review requests after purchase",
+    "step1_option_2":"Automate Everything",
+    "step1_option_2_description":"Set up once and let it run automatically",
+    "step1_option_3":"Track Performance",
+    "step1_option_3_description":"Monitor your review collection metrics",
+    
+    "step2_heading_1": "Configure Review Collection",
+    "step2_description_1":"",
+    "step2_option_1":"",
+    "step2_option_1_description":"",
+    "step2_option_2":"",
+    "step2_option_2_description":"",
+    "step2_option_3":"",
+    "step2_option_3_description":"",
+
+
+    "step3_heading_1": "Choose your Style",
+    "step3_description_1":"Select how your reviews will look",
+    "Label1":"Minimal",
+    "value1":"minimal",
+    "step3_option_1_description":"Minimalist design with a star rating",
+    "Label2":"Modern",
+    "Value2":"modern",
+    "step3_option_2_description":"Modern design with a star rating",
+
+
+    "step4_heading_1": "You're All Set!",
+    "step4_description_1":"Your review collection is ready to go.",
+    "step4_option_1":"View Dashboard",
+    "step4_option_2":"Watch Quick Tutorial"
+  }
+}
