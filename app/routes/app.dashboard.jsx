@@ -14,17 +14,14 @@ import { StoreIcon, ImportIcon, ColorIcon, SearchIcon, SettingsIcon, UploadIcon 
 import csvReader from '../helper/csvReader';
 import { insertStoreData } from '../graphql/insertStoreData';
 import { getStoresDetails } from '../graphql/getStoresDetails';
-import { useSubmit, useNavigation } from "@remix-run/react";
 
 export default function Dashboard() {
   const [files, setFiles] = useState([]);
   const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-    const [selected, setSelected] = useState('Stores');
-    const [openFileDialog, setOpenFileDialog] = useState(false);
-  const submit = useSubmit();
-  const navigation = useNavigation();
+  const [selected, setSelected] = useState('Stores');
+  const [openFileDialog, setOpenFileDialog] = useState(false);
 
   const handleButtonClick = (buttonName) => {
     setSelected(buttonName);
@@ -55,87 +52,48 @@ export default function Dashboard() {
   }
 
   async function handleDropZoneDrop(dropFiles) {
-    if (!dropFiles.length) return;
+    if (!dropFiles.length) {
+      console.log('No files dropped');
+      return;
+    }
     
     setFiles(dropFiles);
     const file = dropFiles[0];
     
     try {
       setLoading(true);
-      const text = await file.text();
-      console.log('Raw CSV content:', text);
+      // Use csvReader to parse the file
+      const parsedData = await csvReader(file);
+      console.log('Parsed CSV data:', parsedData);
 
-      // Split CSV into rows and remove any empty lines
-      const rows = text.split('\n').filter(row => row.trim());
-      const headers = rows[0].split(',').map(h => h.trim());
-      console.log('CSV headers found:', headers);
-      
-      const storeData = rows.slice(1).map(row => {
-        // Split row by comma, but handle quoted values correctly
-        const values = row.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-        console.log('Row values:', values);
-
+      // Map the CSV data to store format
+      const storeData = parsedData.map(row => {
         // Create store object from CSV row
-        const store = {};
-        headers.forEach((header, index) => {
-          // Map the CSV headers to your store fields
-          switch(header.toLowerCase().replace(/\s+/g, '')) {
-            case 'storename':
-            case 'store_name':
-              store.storeName = values[index];
-              break;
-            case 'address':
-              store.address = values[index];
-              break;
-            case 'city':
-              store.city = values[index];
-              break;
-            case 'state':
-              store.state = values[index];
-              break;
-            case 'zip':
-              store.zip = values[index];
-              break;
-            case 'country':
-              store.country = values[index];
-              break;
-            case 'phone':
-              store.phone = values[index];
-              break;
-            case 'email':
-              store.email = values[index];
-              break;
-            case 'hours':
-              store.hours = values[index];
-              break;
-            case 'services':
-              store.services = values[index];
-              break;
-            default:
-              console.warn(`Unknown header: ${header}`);
-          }
-        });
+        const store = {
+          storeName: row['Store Name'] || '',
+          address: row['Address'] || '',
+          city: row['City'] || '',
+          state: row['State'] || '',
+          zip: row['ZIP'] || '',
+          country: row['Country'] || '',
+          phone: row['Phone'] || '',
+          email: row['Email'] || '',
+          hours: row['Hours'] || '',
+          services: row['Services'] || ''
+        };
 
-        console.log('Processed store:', store);
+        console.log('Processing store:', store);
+
         return store;
       });
 
-      console.log('All processed stores:', storeData);
+      console.log('Processed store data:', storeData);
 
-      // Validate the data before sending
-      if (!storeData.length) {
-        throw new Error('No valid store data found in CSV');
-      }
-
-      // Check for required fields
-      const missingFields = storeData.find(store => !store.storeName);
-      if (missingFields) {
-        throw new Error('Store Name is required for all stores');
-      }
-
+      // Insert the store data
       const result = await insertStoreData(storeData);
       console.log('Insert result:', result);
 
+      // Refresh the store list
       await fetchStores();
       setFiles([]);
       setError(null);
@@ -146,25 +104,6 @@ export default function Dashboard() {
       setLoading(false);
     }
   }
-
-  const validateStore = (store) => {
-    console.log('Validating store:', store);
-    const validatedStore = {
-      id: store.id || `temp-${Date.now()}`,
-      storeName: store.storeName || store.store_name || 'Unnamed Store',
-      address: store.address || 'No address',
-      city: store.city || 'No city',
-      state: store.state || 'No state',
-      zip: store.zip || 'No ZIP',
-      country: store.country || 'No country',
-      phone: store.phone || 'No phone',
-      email: store.email || 'No email',
-      hours: store.hours || 'Not specified',
-      services: store.services || 'Not specified'
-    };
-    console.log('Validated store:', validatedStore);
-    return validatedStore;
-  };
 
   const renderStores = () => {
     console.log('Rendering stores. Current stores:', stores);
@@ -193,14 +132,14 @@ export default function Dashboard() {
     }
 
     return stores.map((store) => {
-      const validatedStore = validateStore(store);
+       
       return (
-        <Card key={validatedStore.id}>
+        <Card key={store.storeName}>
           <BlockStack gap="400">
             <InlineStack gap="400" align='space-between'>
               <Box>
-                <Text variant="headingMd">{validatedStore.storeName}</Text>
-                <Text>{`${validatedStore.address}, ${validatedStore.city}, ${validatedStore.state} ${validatedStore.zip}`}</Text>
+                <Text variant="headingMd">{ store.storeName}</Text>
+                <Text>{`${ store.address}, ${ store.city}, ${ store.state} ${ store.zip}`}</Text>
               </Box>
               <ButtonGroup>
                 <Button size='slim'>Edit</Button>
@@ -210,16 +149,16 @@ export default function Dashboard() {
             <InlineStack gap="1000">
               <Box>
                 <Text variant="headingSm">Hours</Text>
-                <Text>{validatedStore.hours}</Text>
+                <Text>{ store.hours}</Text>
               </Box>
               <Box>
                 <Text variant="headingSm">Contact</Text>
-                <Text>{validatedStore.phone}</Text>
-                <Text>{validatedStore.email}</Text>
+                <Text>{ store.phone}</Text>
+                <Text>{ store.email}</Text>
               </Box>
               <Box>
                 <Text variant="headingSm">Services</Text>
-                <Text>{validatedStore.services}</Text>
+                <Text>{ store.services}</Text>
               </Box>
             </InlineStack>
           </BlockStack>
