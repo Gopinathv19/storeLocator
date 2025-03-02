@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "5d9fb0074152e9f75b4e81672c29a0a2"
-application_url = "https://bathrooms-pete-cotton-behavioral.trycloudflare.com"
+application_url = "https://attacks-lets-profiles-equipment.trycloudflare.com"
 embedded = true
 name = "reviewSuiteApp"
 handle = "reviewsuiteapp"
@@ -24,9 +24,9 @@ scopes = "read_metaobjects,write_metaobject_definitions,write_metaobjects,write_
 
 [auth]
 redirect_urls = [
-  "https://bathrooms-pete-cotton-behavioral.trycloudflare.com/auth/callback",
-  "https://bathrooms-pete-cotton-behavioral.trycloudflare.com/auth/shopify/callback",
-  "https://bathrooms-pete-cotton-behavioral.trycloudflare.com/api/auth/callback"
+  "https://attacks-lets-profiles-equipment.trycloudflare.com/auth/callback",
+  "https://attacks-lets-profiles-equipment.trycloudflare.com/auth/shopify/callback",
+  "https://attacks-lets-profiles-equipment.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]

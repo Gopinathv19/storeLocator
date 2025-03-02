@@ -1,7 +1,12 @@
 import { json } from "@remix-run/node";
-import { buildSchema } from 'graphql';
-import { graphql } from 'graphql';
-import { createStoreLocationDefinition } from "../graphql/createMetaObjectDefinition";
+import { buildSchema } from "graphql";
+import { graphql } from "graphql";
+import {
+  createStoreLocationDefinition,
+  updateStoreLocationDefinition,
+  deleteStoreLocationDefinition,
+  getStoresDetails,
+} from "../graphql/createMetaObjectDefinition";
 
 const schema = buildSchema(`
   type Store {
@@ -31,10 +36,6 @@ const schema = buildSchema(`
     services: String
   }
 
-  input StoreInput {
-    stores: [StoreDataInput!]!
-  }
-
   type StoreResponse {
     id: ID!
     success: Boolean!
@@ -52,40 +53,25 @@ const schema = buildSchema(`
   }
 
   type Mutation {
-    insertStoreData(input: StoreInput!): StoreResponse
     createStoreLocationDefinition: MetaobjectDefinitionResponse
+    updateStoreLocationDefinition(id: ID!, input: StoreDataInput!): MetaobjectDefinitionResponse
+    deleteStoreLocationDefinition(id: ID!): MetaobjectDefinitionResponse
   }
 `);
 
 const root = {
   getStoresDetails: async (_, context) => {
-    // Implement your store fetching logic here
-    return []; // Return your stores data
-  },
-  insertStoreData: async ({ input }, context) => {
-    // Implement your store insertion logic here
-    return {
-      id: "new-store-id",
-      success: true,
-      message: "Store data inserted successfully"
-    };
+    return await getStoresDetails(context.request);
   },
   createStoreLocationDefinition: async (_, context) => {
-    try {
-      const result = await createStoreLocationDefinition(context.request);
-      return {
-        success: true,
-        message: "Metaobject definition created successfully",
-        id: result.id
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-        id: null
-      };
-    }
-  }
+    return await createStoreLocationDefinition(context.request);
+  },
+  updateStoreLocationDefinition: async ({ id, input }, context) => {
+    return await updateStoreLocationDefinition(context.request, id, input);
+  },
+  deleteStoreLocationDefinition: async ({ id }, context) => {
+    return await deleteStoreLocationDefinition(context.request, id);
+  },
 };
 
 export async function action({ request }) {
@@ -97,7 +83,7 @@ export async function action({ request }) {
         source: body.query,
         variableValues: body.variables,
         rootValue: root,
-        contextValue: { request }
+        contextValue: { request },
       });
 
       if (response.errors) {
