@@ -1,139 +1,101 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Page, 
         Card, 
         Text, 
         ButtonGroup, 
-        Button ,
+        Button,
         Box, 
         InlineStack, 
         BlockStack,
         DropZone,
-        Icon
-        } from '@shopify/polaris';
-import { StoreIcon, ImportIcon, ColorIcon, SearchIcon, SettingsIcon, UploadIcon } from '@shopify/polaris-icons';
+} from '@shopify/polaris';
+import { StoreIcon, ImportIcon, ColorIcon, SearchIcon, SettingsIcon } from '@shopify/polaris-icons';
+import { useSubmit, useLoaderData } from '@remix-run/react';
 import csvReader from '../helper/csvReader';
-import {
-    createStoreLocationDefinition,
-    updateStoreLocationDefinition,
-    deleteStoreLocationDefinition,
-    getStoresDetails,
-  } from "./api.graphql"; 
+import { json } from '@remix-run/node';
+
+export async function loader({ request }) {
+  // Make a request to our API route
+  const response = await fetch('/api/stores');
+  const { stores } = await response.json();
+  return json({ stores });
+}
+
 export default function Dashboard() {
     const [selected, setSelected] = useState('Stores');
     const [files, setFiles] = useState([]);
     const [openFileDialog, setOpenFileDialog] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
 
-    const [store,setStore] = useState([]);
+    const submit = useSubmit();
+    const { stores } = useLoaderData();
 
     const handleButtonClick = (value) => {
         setSelected(value);
         console.log(value);
     }
 
-    async function fetchStores() {
-        try {
-          setLoading(true);
-          console.log('Fetching stores...');
-          const storesData = await getStoresDetails();
-          console.log('Fetched stores data:', storesData);
-          setStores(storesData || []);
-          setError(null);
-        } catch (err) {
-          console.error('Error in fetchStores:', err);
-          setError(err.message);
-        } finally {
-          setLoading(false);
-        }
-      }
-
-    // const handleDropZoneDrop = useCallback(
-    //     async(dropFiles) =>{
-    //         if(dropFiles.length > 0){
-    //             try{
-    //                 const file =dropFiles[0];
-    //                 const parsedData = await csvReader(file);
-    //                 console.log(parsedData);
-    //                 console.log(parsedData);
-    //                 setFiles(parsedData);
-    //             }catch(error){
-    //                 console.error('Error reading file:', error);
-    //             }
-
-    //         }
-    //     },
-    //     []
-    // );
-
-
-
     const handleDropZoneDrop = async (dropFiles) => {
         if (!dropFiles.length) {
-          console.log('No files dropped');
-          return;
+            console.log('No files dropped');
+            return;
         }
-        
-        setFiles(dropFiles);
-        const file = dropFiles[0];
-        
+
         try {
-          setLoading(true);
-          // Use csvReader to parse the file
-          const parsedData = await csvReader(file);
-          console.log('Parsed CSV data:', parsedData);
-    
-          // Map the CSV data to store format
-          const storeData = parsedData.map(row => {
-            // Create store object from CSV row
-            const store = {
-              storeName: row['Store Name'] || '',
-              address: row['Address'] || '',
-              city: row['City'] || '',
-              state: row['State'] || '',
-              zip: row['ZIP'] || '',
-              country: row['Country'] || '',
-              phone: row['Phone'] || '',
-              email: row['Email'] || '',
-              hours: row['Hours'] || '',
-              services: row['Services'] || ''
-            };
-    
-            console.log('Processing store:', store);
-    
-            return store;
-          });
-    
-          console.log('Processed store data:', storeData);
-    
-          // Insert the store data
-          const result = await insertStoreData(storeData);
-          console.log('Insert result:', result);
-    
-          // Refresh the store list
-          await fetchStores();
-          setFiles([]);
-          setError(null);
+            setLoading(true);
+            
+            // Check if metaobject definition exists
+            const formData = new FormData();
+            formData.append('intent', 'check');
+            const checkResponse = await submit(formData, { 
+                method: 'post', 
+                action: '/api/stores' 
+            });
+            const checkResult = await checkResponse.json();
+
+            if (!checkResult.exists) {
+                // Create metaobject definition if it doesn't exist
+                formData.set('intent', 'create');
+                await submit(formData, { 
+                    method: 'post', 
+                    action: '/api/stores' 
+                });
+            }
+
+            // Process CSV file
+            const parsedData = await csvReader(dropFiles[0]);
+            
+            // Process each store
+            for (const row of parsedData) {
+                const storeFormData = new FormData();
+                storeFormData.append('intent', 'createStore');
+                
+                // Add all store data to formData
+                Object.entries(row).forEach(([key, value]) => {
+                    storeFormData.append(key, value);
+                });
+                
+                // Create store metaobject
+                await submit(storeFormData, { 
+                    method: 'post', 
+                    action: '/api/stores' 
+                });
+            }
+
+            console.log('All stores processed successfully');
+            setError(null);
+            
+            // Refresh the stores list using the loader
+            submit(null, { method: 'get', action: '/app/dashboard' });
+            
         } catch (err) {
-          console.error('Error processing CSV:', err);
-          setError(err.message);
+            console.error('Error processing file:', err);
+            setError(err.message);
         } finally {
-          setLoading(false);
+            setLoading(false);
         }
-      }
-
-
-      async function insertStoreData(StoreData){
-        try{
-          const result =  await createStoreLocationDefinition(StoreData);
-          if(!result.success){
-            throw new Error(result.message);
-          }
-          return result;
-        }
-        catch(error){
-              setError(`Error inserting the data ${error.message}`)
-              return null;
-        }
-      }
+    };
 
     const toggleOpenFileDialog = useCallback(
         () => setOpenFileDialog((openFileDialog) => !openFileDialog),
@@ -147,8 +109,6 @@ export default function Dashboard() {
         { name: 'SEO', icon: SearchIcon },
         { name: 'Settings', icon: SettingsIcon },
     ];
-
- 
 
     return (
         <Page
@@ -173,39 +133,11 @@ export default function Dashboard() {
             {selected === 'Stores' && (
                 <Card>
                     <Text variant='heading2xl' as='h6'>Store Locations</Text>
-                    {files && files.length > 0 ? (
-                        files.map((store, index) => (
-                            <Card key={index}>
-                                <BlockStack gap="400">
-                                    <InlineStack gap="400" align='space-between'>
-                                        <Box>
-                                            <Text variant="headingMd">{store['Store Name'] || store['store_name'] || 'Store Name'}</Text>
-                                            <Text>{`${store['Address'] || store['address'] || ''}, ${store['City'] || store['city'] || ''}, ${store['State'] || store['state'] || ''} ${store['ZIP'] || store['zip'] || ''}`}</Text>
-                                        </Box>
-                                        <ButtonGroup>
-                                            <Button size='slim'>Edit</Button>
-                                            <Button size='slim' destructive>Delete</Button>
-                                        </ButtonGroup>
-                                    </InlineStack>
-                                    <InlineStack gap="1000">
-                                        <Box>
-                                            <Text variant="headingSm">Hours</Text>
-                                            <Text>{store['Hours'] || store['hours'] || 'Not specified'}</Text>
-                                        </Box>
-                                        <Box>
-                                            <Text variant="headingSm">Contact</Text>
-                                            <Text>{store['Phone'] || store['phone'] || 'Not specified'}</Text>
-                                            <Text>{store['Email'] || store['email'] || 'Not specified'}</Text>
-                                        </Box>
-                                        <Box>
-                                            <Text variant="headingSm">Services</Text>
-                                            <Text>{store['Services'] || store['services'] || 'Not specified'}</Text>
-                                        </Box>
-                                    </InlineStack>
-                                </BlockStack>
-                            </Card>
-                        ))
-                    ) : (
+                    {loading ? (
+                        <Text>Loading stores...</Text>
+                    ) : error ? (
+                        <Text>Error: {error}</Text>
+                    ) : !stores || stores.length === 0 ? (
                         <Card>
                             <BlockStack gap="400" alignment="center">
                                 <Text variant="bodyMd" color="subdued">
@@ -219,6 +151,38 @@ export default function Dashboard() {
                                 </Button>
                             </BlockStack>
                         </Card>
+                    ) : (
+                        stores.map((store) => (
+                            <Card key={store.id || store.storeName}>
+                                <BlockStack gap="400">
+                                    <InlineStack gap="400" align='space-between'>
+                                        <Box>
+                                            <Text variant="headingMd">{store.store_name}</Text>
+                                            <Text>{`${store.address}, ${store.city}, ${store.state} ${store.zip}`}</Text>
+                                        </Box>
+                                        <ButtonGroup>
+                                            <Button size='slim'>Edit</Button>
+                                            <Button size='slim' destructive>Delete</Button>
+                                        </ButtonGroup>
+                                    </InlineStack>
+                                    <InlineStack gap="1000">
+                                        <Box>
+                                            <Text variant="headingSm">Hours</Text>
+                                            <Text>{store.hours}</Text>
+                                        </Box>
+                                        <Box>
+                                            <Text variant="headingSm">Contact</Text>
+                                            <Text>{store.phone}</Text>
+                                            <Text>{store.email}</Text>
+                                        </Box>
+                                        <Box>
+                                            <Text variant="headingSm">Services</Text>
+                                            <Text>{store.services}</Text>
+                                        </Box>
+                                    </InlineStack>
+                                </BlockStack>
+                            </Card>
+                        ))
                     )}
                 </Card>
             )}
@@ -234,10 +198,9 @@ export default function Dashboard() {
                             >
                                 <Box padding="4" border="dashed" borderColor="gray">
                                     <BlockStack>
- 
+                                        <Text variant="bodyMd">Drop CSV file here or click to upload</Text>
                                     </BlockStack>
                                 </Box>
-                                 
                             </DropZone>
                             <Box padding="4" background="surfaceSecondary">
                                 <Text variant="bodyMd" strong>CSV Format Guide</Text>
