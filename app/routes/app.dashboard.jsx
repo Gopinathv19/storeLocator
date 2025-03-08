@@ -13,14 +13,16 @@ import { StoreIcon, ImportIcon, ColorIcon, SearchIcon, SettingsIcon } from '@sho
 import { useSubmit, useLoaderData } from '@remix-run/react';
 import csvReader from '../helper/csvReader';
 import { json } from '@remix-run/node';
-import { fetchStores } from '../service/storeService';
+import { fetchStores, checkMetaobjectDefinition, createMetaobjectDefinition } from '../service/storeService';
+
+import { authenticate } from  '../shopify.server'
 
 export const loader = async ({request}) => {
     const {admin} = await authenticate.admin(request);
     const {status,stores,error} = await fetchStores(admin);
 
     if(status !== 200){
-        return json({error : error} , {status : status});
+        return json({error},{status});
     }
 
     return json ({stores});
@@ -50,52 +52,45 @@ export default function Dashboard() {
         try {
             setLoading(true);
             
-            // Check if metaobject definition exists
-            const formData = new FormData();
-            formData.append('intent', 'check');
-            const checkResponse = await submit(formData, { 
-                method: 'post', 
-                action: '/api/stores' 
-            });
-            const checkResult = await checkResponse.json();
+            // lets check the meta object definition 
 
-            if (!checkResult.exists) {
-                // Create metaobject definition if it doesn't exist
-                formData.set('intent', 'create');
-                await submit(formData, { 
-                    method: 'post', 
-                    action: '/api/stores' 
-                });
+            const {admin} = await authenticate.admin();
+
+            const checkResult = await checkMetaobjectDefinition(admin);
+
+            if(!checkResult.exists){
+                const createDefinition = await createMetaobjectDefinition(admin);
+                if(createDefinition.status !== 200){
+                    throw new Error('Failed to create metaobject definition');
+                }
             }
 
             // Process CSV file
             const parsedData = await csvReader(dropFiles[0]);
             
-            // Process each store
-            for (const row of parsedData) {
-                const storeFormData = new FormData();
-                storeFormData.append('intent', 'createStore');
-                
-                // Add all store data to formData
-                Object.entries(row).forEach(([key, value]) => {
-                    storeFormData.append(key, value);
-                });
-                
-                // Create store metaobject
-                await submit(storeFormData, { 
-                    method: 'post', 
-                    action: '/api/stores' 
-                });
+            for (const row of parsedData){
+                const storeData = {
+                    storeName: row['Store Name'],
+                    address: row['Address'],
+                    city: row['City'],
+                    state: row['State'],
+                    zip: row['ZIP'],
+                    country: row['Country'],
+                    phone: row['Phone'],
+                    email: row['Email'],
+                    hours: row['Hours'],
+                    services: row['Services']
+                };
+
+                const createResult = await createStoreMetaobject(admin,storeData);
+                if(createResult.status !== 200){
+                    throw new Error('Failed to create store metaobject');
+                }
             }
 
             console.log('All stores processed successfully');
             setError(null);
-            
-            // Refresh the stores list using the loader
-            submit(null, { method: 'get', action: '/app/dashboard' });
-            
         } catch (err) {
-            console.error('Error processing file:', err);
             setError(err.message);
         } finally {
             setLoading(false);

@@ -82,7 +82,69 @@ export const createMetaobjectDefinition = async (request) => {
   }
 };
 
+const createStoreMetaobject = async (admin, storeData) => {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation CreateMetaobject($metaobject: MetaobjectCreateInput!) {
+        metaobjectCreate(metaobject: $metaobject) {
+          metaobject {
+            handle
+            fields {
+              key
+              value
+            }
+          }
+          userErrors {
+            field
+            message
+            code
+          }
+        }
+      }`,
+      {
+        variables: {
+          metaobject: {
+            type: "store_location",
+            handle: storeData.storeName.toLowerCase().replace(/\s+/g, '-'),
+            fields: [
+              { key: "store_name", value: storeData.storeName },
+              { key: "address", value: storeData.address },
+              { key: "city", value: storeData.city },
+              { key: "state", value: storeData.state },
+              { key: "zip", value: storeData.zip },
+              { key: "country", value: storeData.country },
+              { key: "phone", value: storeData.phone },
+              { key: "email", value: storeData.email },
+              { key: "hours", value: storeData.hours },
+              { key: "services", value: storeData.services }
+            ]
+          }
+        }
+      }
+    );
 
+    const data = await response.json();
+    if (data.errors || data.data.metaobjectCreate.userErrors.length > 0) {
+      return {
+        status: 500,
+        error: 'Failed to create store metaobject',
+        details: data.errors || data.data.metaobjectCreate.userErrors
+      };
+    }
+
+    return {
+      status: 200,
+      data: data.data.metaobjectCreate.metaobject
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      error: 'Failed to create store metaobject',
+      details: error.message
+    };
+  }
+};
  
 
 const fetchStores = async (admin) =>{
@@ -120,6 +182,6 @@ const fetchStores = async (admin) =>{
 
 }
 
-export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition};
+export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition,createStoreMetaobject};
 
   
