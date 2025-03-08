@@ -13,12 +13,17 @@ import { StoreIcon, ImportIcon, ColorIcon, SearchIcon, SettingsIcon } from '@sho
 import { useSubmit, useLoaderData } from '@remix-run/react';
 import csvReader from '../helper/csvReader';
 import { json } from '@remix-run/node';
+import { fetchStores } from '../service/storeService';
 
-export async function loader({ request }) {
-  // Make a request to our API route
-  const response = await fetch('/api/stores');
-  const { stores } = await response.json();
-  return json({ stores });
+export const loader = async ({request}) => {
+    const {admin} = await authenticate.admin(request);
+    const {status,stores,error} = await fetchStores(admin);
+
+    if(status !== 200){
+        return json({error : error} , {status : status});
+    }
+
+    return json ({stores});
 }
 
 export default function Dashboard() {

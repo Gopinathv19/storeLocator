@@ -1,4 +1,3 @@
-import admin from "../shopify.server";
 const createMetaobject = async (storeData) => {
     const response = await admin.graphql(
       `#graphql

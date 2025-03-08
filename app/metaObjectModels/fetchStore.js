@@ -1,5 +1,3 @@
-import admin from "../shopify.server";
-
 const fetchStoresFromAPI = async () => {
     try {
         const response = await admin.graphql(

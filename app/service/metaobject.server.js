@@ -1,5 +1,5 @@
 import { json } from '@remix-run/node';
-import { authenticate } from "../../shopify.server";
+import { authenticate } from "../shopify.server";
 
 // Check if metaobject definition exists
 export const checkMetaobjectDefinition = async (request) => {
