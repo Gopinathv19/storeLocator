@@ -10,23 +10,88 @@ import { Page,
         DropZone,
 } from '@shopify/polaris';
 import { StoreIcon, ImportIcon, ColorIcon, SearchIcon, SettingsIcon } from '@shopify/polaris-icons';
-import { useSubmit, useLoaderData } from '@remix-run/react';
+import { useSubmit, useLoaderData, Form } from '@remix-run/react';
 import csvReader from '../helper/csvReader';
 import { json } from '@remix-run/node';
-import { fetchStores, checkMetaobjectDefinition, createMetaobjectDefinition } from '../service/storeService';
-
-import { authenticate } from  '../shopify.server'
+import { fetchStores, checkMetaobjectDefinition, createMetaobjectDefinition, createStoreMetaobject } from '../service/storeService';
+import { authenticate } from '../shopify.server';
 
 export const loader = async ({request}) => {
-    const {admin} = await authenticate.admin(request);
-    const {status,stores,error} = await fetchStores(admin);
+    try {
+        const {admin} = await authenticate.admin(request);
+        const {status,stores,error} = await fetchStores(admin);
 
-    if(status !== 200){
-        return json({error},{status});
+        if(status !== 200){
+            return json({error},{status});
+        }
+
+        return json ({
+            stores,
+            admin
+        });
+    } catch (error) {
+        return json(
+            { error: 'Failed to load stores' }, 
+            { status: 500 }
+        );
+    }
+}
+
+export const action = async ({ request }) => {
+    const { admin } = await authenticate.admin(request);
+    const formData = await request.formData();
+    const intent = formData.get('intent');
+
+    if (intent === 'processFile') {
+        try {
+            const file = formData.get('file');
+            if (!file) {
+                throw new Error('No file provided');
+            }
+
+            // Process the file on the server side
+             
+            const parsedData = await csvReader(file);
+            console.log(parsedData);
+
+            // Check metaobject definition
+            const checkResult = await checkMetaobjectDefinition(admin);
+            if (!checkResult.exists) {
+                const createDefinitionResult = await createMetaobjectDefinition(admin);
+                if (createDefinitionResult.status !== 200) {
+                    throw new Error('Failed to create metaobject definition');
+                }
+            }
+
+            // Create store metaobjects
+            for (const row of parsedData) {
+                const storeData = {
+                    storeName: row['Store Name'],
+                    address: row['Address'],
+                    city: row['City'],
+                    state: row['State'],
+                    zip: row['ZIP'],
+                    country: row['Country'],
+                    phone: row['Phone'] || '',
+                    email: row['Email'] || '',
+                    hours: row['Hours'] || '',
+                    services: row['Services'] || ''
+                };
+
+                const createResult = await createStoreMetaobject(admin, storeData);
+                if (createResult.status !== 200) {
+                    throw new Error(`Failed to create store ${storeData.storeName}`);
+                }
+            }
+
+            return json({ success: true });
+        } catch (error) {
+            return json({ error: error.message }, { status: 500 });
+        }
     }
 
-    return json ({stores});
-}
+    return json({ error: 'Invalid intent' }, { status: 400 });
+};
 
 export default function Dashboard() {
     const [selected, setSelected] = useState('Stores');
@@ -38,64 +103,31 @@ export default function Dashboard() {
     const submit = useSubmit();
     const { stores } = useLoaderData();
 
-    const handleButtonClick = (value) => {
+    const handleButtonClick = useCallback((value) => {
         setSelected(value);
-        console.log(value);
-    }
+        console.log('Selected tab:', value);
+    }, []);
 
-    const handleDropZoneDrop = async (dropFiles) => {
-        if (!dropFiles.length) {
-            console.log('No files dropped');
-            return;
-        }
+    const handleDropZoneDrop = useCallback(async (dropFiles) => {
+        if (!dropFiles.length) return;
 
         try {
             setLoading(true);
-            
-            // lets check the meta object definition 
-
-            const {admin} = await authenticate.admin();
-
-            const checkResult = await checkMetaobjectDefinition(admin);
-
-            if(!checkResult.exists){
-                const createDefinition = await createMetaobjectDefinition(admin);
-                if(createDefinition.status !== 200){
-                    throw new Error('Failed to create metaobject definition');
-                }
-            }
-
-            // Process CSV file
-            const parsedData = await csvReader(dropFiles[0]);
-            
-            for (const row of parsedData){
-                const storeData = {
-                    storeName: row['Store Name'],
-                    address: row['Address'],
-                    city: row['City'],
-                    state: row['State'],
-                    zip: row['ZIP'],
-                    country: row['Country'],
-                    phone: row['Phone'],
-                    email: row['Email'],
-                    hours: row['Hours'],
-                    services: row['Services']
-                };
-
-                const createResult = await createStoreMetaobject(admin,storeData);
-                if(createResult.status !== 200){
-                    throw new Error('Failed to create store metaobject');
-                }
-            }
-
-            console.log('All stores processed successfully');
             setError(null);
+
+            const file = dropFiles[0];
+            const formData = new FormData();
+            formData.append('intent', 'processFile');
+            console.log(file);
+            formData.append('file', file);
+
+            await submit(formData, { method: 'post' });
         } catch (err) {
             setError(err.message);
         } finally {
             setLoading(false);
         }
-    };
+    }, [submit]);
 
     const toggleOpenFileDialog = useCallback(
         () => setOpenFileDialog((openFileDialog) => !openFileDialog),
@@ -116,12 +148,12 @@ export default function Dashboard() {
             subtitle="Manage your store locations and customize your store locator page"
         >
             <Card>
-                <ButtonGroup>
+                <ButtonGroup segmented>
                     {buttons.map((button) => (
                         <Button
                             key={button.name}
+                            pressed={selected === button.name}
                             onClick={() => handleButtonClick(button.name)}
-                            variant={selected === button.name ? 'primary' : 'secondary'}
                             icon={button.icon}
                         >
                             {button.name}
