@@ -19,7 +19,7 @@ const checkMetaobjectDefinition = async (admin) => {
     if(data.errors){
       return {status : 500 , error : 'Failed to check metaobject definition',details : data.errors}
     }
-    const storeDefinition = data.data.metaobjectDefinitions.edges.find(edge => edge.node.type === 'store_location');
+    const storeDefinition = data?.data?.metaobjectDefinitions?.edges?.find(edge => edge.node.type === 'store_location');
     return {status : 200 , exists : !!storeDefinition};
   } catch (error) {
     return {status : 500 , error : 'Failed to check metaobject definition',details : error.message}
@@ -72,13 +72,13 @@ export const createMetaobjectDefinition = async (request) => {
     );
 
     const data = await response.json();
-    if (data.errors || data.data.metaobjectDefinitionCreate.userErrors.length > 0) {
-      const errors = data.errors || data.data.metaobjectDefinitionCreate.userErrors;
+    if (data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
+      const errors = data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors;
       throw new Error(JSON.stringify(errors));
     }
-    return json({ success: true }); // Return success response
+    return json({ success: true });  
   } catch (error) {
-    return json({ error: error.message }, { status: 500 }); // Return error response
+    return json({ error: error.message }, { status: 500 });  
   }
 };
 
@@ -125,17 +125,17 @@ const createStoreMetaobject = async (admin, storeData) => {
     );
 
     const data = await response.json();
-    if (data.errors || data.data.metaobjectCreate.userErrors.length > 0) {
+    if (data.errors || data?.data?.metaobjectCreate?.userErrors?.length > 0) {
       return {
         status: 500,
         error: 'Failed to create store metaobject',
-        details: data.errors || data.data.metaobjectCreate.userErrors
+        details: data.errors || data?.data?.metaobjectCreate?.userErrors
       };
     }
 
     return {
       status: 200,
-      data: data.data.metaobjectCreate.metaobject
+      data: data?.data?.metaobjectCreate?.metaobject
     };
   } catch (error) {
     return {
@@ -183,5 +183,7 @@ const fetchStores = async (admin) =>{
 }
 
 export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition,createStoreMetaobject};
+
+
 
   

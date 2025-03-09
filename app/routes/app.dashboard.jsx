@@ -135,7 +135,6 @@ export default function Dashboard() {
 
     const handleButtonClick = useCallback((value) => {
         setSelected(value);
-        console.log('Selected tab:', value);
     }, []);
 
     const handleDropZoneDrop = useCallback(async (dropFiles) => {
@@ -193,6 +192,7 @@ export default function Dashboard() {
                         <Button
                             key={button.name}
                             pressed={selected === button.name}
+                            variant={selected === button.name ? 'primary':'secondary'}
                             onClick={() => handleButtonClick(button.name)}
                             icon={button.icon}
                         >
