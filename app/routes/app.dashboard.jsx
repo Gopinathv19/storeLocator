@@ -44,27 +44,29 @@ export const action = async ({ request }) => {
 
     if (intent === 'processFile') {
         try {
-            const file = formData.get('file');
-            if (!file) {
-                throw new Error('No file provided');
+            const storesData = JSON.parse(formData.get('stores'));
+            if (!Array.isArray(storesData) || storesData.length === 0) {
+                return json({ 
+                    success: false,
+                    message: 'No valid store data provided'
+                }, { status: 400 });
             }
 
-            // Process the file on the server side
-            console.log("hello");
-            console.log(file);
-            const parsedData = await csvReader(file);  
-            console.log(parsedData);  
             // Check metaobject definition
             const checkResult = await checkMetaobjectDefinition(admin);
             if (!checkResult.exists) {
                 const createDefinitionResult = await createMetaobjectDefinition(admin);
                 if (createDefinitionResult.status !== 200) {
-                    throw new Error('Failed to create metaobject definition');
+                    return json({ 
+                        success: false,
+                        message: 'Failed to create metaobject definition'
+                    }, { status: 500 });
                 }
             }
 
             // Create store metaobjects
-            for (const row of parsedData) {
+            const results = [];
+            for (const row of storesData) {
                 const storeData = {
                     storeName: row['Store Name'],
                     address: row['Address'],
@@ -78,19 +80,47 @@ export const action = async ({ request }) => {
                     services: row['Services'] || ''
                 };
 
-                const createResult = await createStoreMetaobject(admin, storeData);
-                if (createResult.status !== 200) {
-                    throw new Error(`Failed to create store ${storeData.storeName}`);
+                try {
+                    const createResult = await createStoreMetaobject(admin, storeData);
+                    results.push({
+                        storeName: storeData.storeName,
+                        success: createResult.status === 200,
+                        error: createResult.status !== 200 ? createResult.error : null
+                    });
+                } catch (err) {
+                    results.push({
+                        storeName: storeData.storeName,
+                        success: false,
+                        error: err.message
+                    });
                 }
             }
 
-            return json({ success: true });
+            const failedStores = results.filter(r => !r.success);
+            if (failedStores.length > 0) {
+                return json({
+                    success: false,
+                    message: `Imported ${results.length - failedStores.length} stores. ${failedStores.length} stores failed.`,
+                    failedStores
+                }, { status: 207 });
+            }
+
+            return json({ 
+                success: true,
+                message: `Successfully imported ${results.length} stores.`
+            }, { status: 200 });
         } catch (error) {
-            return json({ error: error.message }, { status: 500 });
+            return json({ 
+                success: false,
+                message: error.message || 'An unexpected error occurred'
+            }, { status: 500 });
         }
     }
 
-    return json({ error: 'Invalid intent' }, { status: 400 });
+    return json({ 
+        success: false,
+        message: 'Invalid request'
+    }, { status: 400 });
 };
 
 export default function Dashboard() {
@@ -116,13 +146,24 @@ export default function Dashboard() {
             setError(null);
 
             const file = dropFiles[0];
+            const parsedData = await csvReader(file);
+
+            if (!Array.isArray(parsedData) || parsedData.length === 0) {
+                throw new Error('No valid data found in CSV');
+            }
+
             const formData = new FormData();
             formData.append('intent', 'processFile');
-            formData.append('file', file);
+            formData.append('stores', JSON.stringify(parsedData));
 
-            await submit(formData, { method: 'post' });
+            // Submit and let Remix handle the response
+            await submit(formData, { 
+                method: 'post',
+                replace: true // This will update the page with the server response
+            });
+
         } catch (err) {
-            setError(err.message);
+            setError(err.message || 'Failed to process file');
         } finally {
             setLoading(false);
         }
