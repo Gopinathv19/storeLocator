@@ -50,10 +50,10 @@ export const action = async ({ request }) => {
             }
 
             // Process the file on the server side
-             
-            const parsedData = await csvReader(file);
-            console.log(parsedData);
-
+            console.log("hello");
+            console.log(file);
+            const parsedData = await csvReader(file);  
+            console.log(parsedData);  
             // Check metaobject definition
             const checkResult = await checkMetaobjectDefinition(admin);
             if (!checkResult.exists) {
@@ -118,7 +118,6 @@ export default function Dashboard() {
             const file = dropFiles[0];
             const formData = new FormData();
             formData.append('intent', 'processFile');
-            console.log(file);
             formData.append('file', file);
 
             await submit(formData, { method: 'post' });
