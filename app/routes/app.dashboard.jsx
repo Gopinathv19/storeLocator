@@ -1,42 +1,50 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Page, 
-        Card, 
-        Text, 
-        ButtonGroup, 
-        Button,
-        Box, 
-        InlineStack, 
-        BlockStack,
-        DropZone,
+import { 
+    Page, 
+    Card, 
+    Text, 
+    ButtonGroup, 
+    Button,
+    Box, 
+    InlineStack, 
+    BlockStack,
+    DropZone 
 } from '@shopify/polaris';
-import { StoreIcon, ImportIcon, ColorIcon, SearchIcon, SettingsIcon } from '@shopify/polaris-icons';
-import { useSubmit, useLoaderData, Form } from '@remix-run/react';
+import { 
+    StoreIcon, 
+    ImportIcon, 
+    ColorIcon, 
+    SearchIcon, 
+    SettingsIcon 
+} from '@shopify/polaris-icons';
+import { useSubmit, useLoaderData } from '@remix-run/react';
 import csvReader from '../helper/csvReader';
 import { json } from '@remix-run/node';
-import { fetchStores, checkMetaobjectDefinition, createMetaobjectDefinition, createStoreMetaobject } from '../service/storeService';
+import { 
+    fetchStores, 
+    checkMetaobjectDefinition, 
+    createMetaobjectDefinition, 
+    createStoreMetaobject 
+} from '../service/storeService';
 import { authenticate } from '../shopify.server';
 
-export const loader = async ({request}) => {
+// Loader function to fetch store data
+export const loader = async ({ request }) => {
     try {
-        const {admin} = await authenticate.admin(request);
-        const {status,stores,error} = await fetchStores(admin);
+        const { admin } = await authenticate.admin(request);
+        const { status, stores, error } = await fetchStores(admin);
 
-        if(status !== 200){
-            return json({error},{status});
+        if (status !== 200) {
+            return json({ error }, { status });
         }
 
-        return json ({
-            stores,
-            admin
-        });
+        return json({ stores, admin });
     } catch (error) {
-        return json(
-            { error: 'Failed to load stores' }, 
-            { status: 500 }
-        );
+        return json({ error: 'Failed to load stores' }, { status: 500 });
     }
-}
+};
 
+// Action function to handle file uploads and store creation
 export const action = async ({ request }) => {
     const { admin } = await authenticate.admin(request);
     const formData = await request.formData();
@@ -48,7 +56,7 @@ export const action = async ({ request }) => {
             if (!Array.isArray(storesData) || storesData.length === 0) {
                 return json({ 
                     success: false,
-                    message: 'No valid store data provided'
+                    message: 'No valid store data provided' 
                 }, { status: 400 });
             }
 
@@ -59,7 +67,7 @@ export const action = async ({ request }) => {
                 if (createDefinitionResult.status !== 200) {
                     return json({ 
                         success: false,
-                        message: 'Failed to create metaobject definition'
+                        message: 'Failed to create metaobject definition' 
                     }, { status: 500 });
                 }
             }
@@ -107,22 +115,23 @@ export const action = async ({ request }) => {
 
             return json({ 
                 success: true,
-                message: `Successfully imported ${results.length} stores.`
+                message: `Successfully imported ${results.length} stores.` 
             }, { status: 200 });
         } catch (error) {
             return json({ 
                 success: false,
-                message: error.message || 'An unexpected error occurred'
+                message: error.message || 'An unexpected error occurred' 
             }, { status: 500 });
         }
     }
 
     return json({ 
         success: false,
-        message: 'Invalid request'
+        message: 'Invalid request' 
     }, { status: 400 });
 };
 
+// Dashboard component
 export default function Dashboard() {
     const [selected, setSelected] = useState('Stores');
     const [files, setFiles] = useState([]);
@@ -192,7 +201,7 @@ export default function Dashboard() {
                         <Button
                             key={button.name}
                             pressed={selected === button.name}
-                            variant={selected === button.name ? 'primary':'secondary'}
+                            variant={selected === button.name ? 'primary' : 'secondary'}
                             onClick={() => handleButtonClick(button.name)}
                             icon={button.icon}
                         >
