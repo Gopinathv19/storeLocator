@@ -47,6 +47,8 @@ export const loader = async ({ request }) => {
     }
 };
 
+
+
 // Action function to handle file uploads and store creation
 export const action = async ({ request }) => {
     const { admin } = await authenticate.admin(request);
