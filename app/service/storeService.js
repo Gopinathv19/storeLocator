@@ -26,9 +26,15 @@ const checkMetaobjectDefinition = async (admin) => {
   }
 }
 
-export const createMetaobjectDefinition = async (request) => {
-  const { admin } = await authenticate.admin(request); // Authenticate the user
+export const createMetaobjectDefinition = async (admin, fieldDefinitions) => {
   try {
+    // Transform the field definitions into the required format
+    const formattedFields = fieldDefinitions.map(field => ({
+      name: field.name,
+      key: field.name.toLowerCase().replace(/\s+/g, '_'),
+      type: "single_line_text_field" // Default type, can be made dynamic if needed
+    }));
+
     const response = await admin.graphql(
       `#graphql
       mutation CreateMetaobjectDefinition($definition: MetaobjectDefinitionCreateInput!) {
@@ -54,18 +60,7 @@ export const createMetaobjectDefinition = async (request) => {
           definition: {
             name: "Store Location",
             type: "store_location",
-            fieldDefinitions: [
-              { name: "Store Name", key: "store_name", type: "single_line_text_field" },
-              { name: "Address", key: "address", type: "multi_line_text_field" },
-              { name: "City", key: "city", type: "single_line_text_field" },
-              { name: "State", key: "state", type: "single_line_text_field" },
-              { name: "ZIP", key: "zip", type: "single_line_text_field" },
-              { name: "Country", key: "country", type: "single_line_text_field" },
-              { name: "Phone", key: "phone", type: "single_line_text_field" },
-              { name: "Email", key: "email", type: "single_line_text_field" },
-              { name: "Hours", key: "hours", type: "multi_line_text_field" },
-              { name: "Services", key: "services", type: "multi_line_text_field" }
-            ]
+            fieldDefinitions: formattedFields
           }
         }
       }
@@ -73,17 +68,123 @@ export const createMetaobjectDefinition = async (request) => {
 
     const data = await response.json();
     if (data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
-      const errors = data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors;
-      throw new Error(JSON.stringify(errors));
+      return {
+        status: 500,
+        error: 'Failed to create metaobject definition',
+        details: data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors
+      };
     }
-    return json({ success: true });  
+    return { status: 200, success: true };
   } catch (error) {
-    return json({ error: error.message }, { status: 500 });  
+    return {
+      status: 500,
+      error: 'Failed to create metaobject definition',
+      details: error.message
+    };
   }
 };
 
-const createStoreMetaobject = async (admin, storeData) => {
+const fetchMetaobjectDefinition = async (admin) => {
   try {
+    const response = await admin.graphql(
+      `#graphql
+      query {
+        metaobjectDefinitions(first: 10) {
+          edges {
+            node {
+              type
+              fieldDefinitions {
+                name
+                key
+                type
+                required
+              }
+            }
+          }
+        }
+      }`
+    );
+
+    const data = await response.json();
+    if (data.errors) {
+      return {
+        status: 500,
+        error: 'Failed to fetch metaobject definition',
+        details: data.errors
+      };
+    }
+
+    const storeDefinition = data?.data?.metaobjectDefinitions?.edges?.find(
+      edge => edge.node.type === 'store_location'
+    );
+
+    if (!storeDefinition) {
+      return {
+        status: 404,
+        error: 'Store location definition not found'
+      };
+    }
+
+    return {
+      status: 200,
+      definition: storeDefinition.node.fieldDefinitions
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      error: 'Failed to fetch metaobject definition',
+      details: error.message
+    };
+  }
+};
+
+const validateStoreData = (storeData, definitionFields) => {
+  const errors = [];
+  
+  // Check for required fields
+  definitionFields.forEach(field => {
+    if (field.required && !storeData[field.key]) {
+      errors.push(`Missing required field: ${field.name}`);
+    }
+  });
+
+  // Check for data type consistency
+  definitionFields.forEach(field => {
+    const value = storeData[field.key];
+    if (value) {
+      switch (field.type) {
+        case 'single_line_text_field':
+        case 'multi_line_text_field':
+          if (typeof value !== 'string') {
+            errors.push(`Invalid type for ${field.name}: expected string`);
+          }
+          break;
+        // Add more type validations as needed
+      }
+    }
+  });
+
+  return errors;
+};
+
+const createStoreMetaobject = async (admin, storeData, definitionFields) => {
+  try {
+    // Validate the store data against the definition
+    const validationErrors = validateStoreData(storeData, definitionFields);
+    if (validationErrors.length > 0) {
+      return {
+        status: 400,
+        error: 'Validation failed',
+        details: validationErrors
+      };
+    }
+
+    // Transform the data into metaobject fields
+    const fields = definitionFields.map(field => ({
+      key: field.key,
+      value: storeData[field.key] || ''
+    }));
+
     const response = await admin.graphql(
       `#graphql
       mutation CreateMetaobject($metaobject: MetaobjectCreateInput!) {
@@ -106,19 +207,9 @@ const createStoreMetaobject = async (admin, storeData) => {
         variables: {
           metaobject: {
             type: "store_location",
-            handle: storeData.storeName.toLowerCase().replace(/\s+/g, '-'),
-            fields: [
-              { key: "store_name", value: storeData.storeName },
-              { key: "address", value: storeData.address },
-              { key: "city", value: storeData.city },
-              { key: "state", value: storeData.state },
-              { key: "zip", value: storeData.zip },
-              { key: "country", value: storeData.country },
-              { key: "phone", value: storeData.phone },
-              { key: "email", value: storeData.email },
-              { key: "hours", value: storeData.hours },
-              { key: "services", value: storeData.services }
-            ]
+            handle: storeData.store_name?.toLowerCase().replace(/\s+/g, '-') || 
+                   `store-${Date.now()}`,
+            fields
           }
         }
       }
@@ -145,7 +236,6 @@ const createStoreMetaobject = async (admin, storeData) => {
     };
   }
 };
- 
 
 const fetchStores = async (admin) =>{
   const response = await admin.graphql(
@@ -182,7 +272,61 @@ const fetchStores = async (admin) =>{
 
 }
 
-export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition,createStoreMetaobject};
+export const processStoreImport = async (admin, storesData) => {
+  try {
+    // Fetch the metaobject definition first
+    const definitionResult = await fetchMetaobjectDefinition(admin);
+    if (definitionResult.status !== 200) {
+      return {
+        status: definitionResult.status,
+        error: definitionResult.error,
+        details: definitionResult.details
+      };
+    }
+
+    const definitionFields = definitionResult.definition;
+    const results = {
+      successful: [],
+      failed: [],
+      total: storesData.length
+    };
+
+    // Process each store
+    for (const storeData of storesData) {
+      const createResult = await createStoreMetaobject(admin, storeData, definitionFields);
+      
+      if (createResult.status === 200) {
+        results.successful.push({
+          storeName: storeData.store_name || 'Unknown',
+          handle: createResult.data.handle
+        });
+      } else {
+        results.failed.push({
+          storeName: storeData.store_name || 'Unknown',
+          error: createResult.error,
+          details: createResult.details
+        });
+      }
+    }
+
+    return {
+      status: results.failed.length > 0 ? 207 : 200,
+      data: {
+        message: `Processed ${results.total} stores. ${results.successful.length} succeeded, ${results.failed.length} failed.`,
+        successful: results.successful,
+        failed: results.failed
+      }
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      error: 'Failed to process store import',
+      details: error.message
+    };
+  }
+};
+
+export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition,createStoreMetaobject,fetchMetaobjectDefinition,validateStoreData};
 
 
 

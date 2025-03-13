@@ -11,7 +11,8 @@ import {
     DropZone,
     Form,
     FormLayout,
-    TextField
+    TextField,
+    Checkbox
 } from '@shopify/polaris';
 import { 
     StoreIcon, 
@@ -27,7 +28,8 @@ import {
     fetchStores, 
     checkMetaobjectDefinition, 
     createMetaobjectDefinition, 
-    createStoreMetaobject 
+    createStoreMetaobject,
+    processStoreImport
 } from '../service/storeService';
 import { authenticate } from '../shopify.server';
 
@@ -47,8 +49,6 @@ export const loader = async ({ request }) => {
     }
 };
 
-
-
 // Action function to handle file uploads and store creation
 export const action = async ({ request }) => {
     const { admin } = await authenticate.admin(request);
@@ -65,63 +65,14 @@ export const action = async ({ request }) => {
                 }, { status: 400 });
             }
 
-            // Check metaobject definition
-            const checkResult = await checkMetaobjectDefinition(admin);
-            if (!checkResult.exists) {
-                const createDefinitionResult = await createMetaobjectDefinition(admin);
-                if (createDefinitionResult.status !== 200) {
-                    return json({ 
-                        success: false,
-                        message: 'Failed to create metaobject definition' 
-                    }, { status: 500 });
-                }
-            }
+            const result = await processStoreImport(admin, storesData);
+            
+            return json({
+                success: result.status === 200,
+                message: result.data?.message || result.error,
+                details: result.data || result.details
+            }, { status: result.status });
 
-            // Create store metaobjects
-            const results = [];
-            for (const row of storesData) {
-                const storeData = {
-                    storeName: row['Store Name'],
-                    address: row['Address'],
-                    city: row['City'],
-                    state: row['State'],
-                    zip: row['ZIP'],
-                    country: row['Country'],
-                    phone: row['Phone'] || '',
-                    email: row['Email'] || '',
-                    hours: row['Hours'] || '',
-                    services: row['Services'] || ''
-                };
-
-                try {
-                    const createResult = await createStoreMetaobject(admin, storeData);
-                    results.push({
-                        storeName: storeData.storeName,
-                        success: createResult.status === 200,
-                        error: createResult.status !== 200 ? createResult.error : null
-                    });
-                } catch (err) {
-                    results.push({
-                        storeName: storeData.storeName,
-                        success: false,
-                        error: err.message
-                    });
-                }
-            }
-
-            const failedStores = results.filter(r => !r.success);
-            if (failedStores.length > 0) {
-                return json({
-                    success: false,
-                    message: `Imported ${results.length - failedStores.length} stores. ${failedStores.length} stores failed.`,
-                    failedStores
-                }, { status: 207 });
-            }
-
-            return json({ 
-                success: true,
-                message: `Successfully imported ${results.length} stores.` 
-            }, { status: 200 });
         } catch (error) {
             return json({ 
                 success: false,
@@ -144,6 +95,11 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [isAddingStore, setIsAddingStore] = useState(false);
+    const [parsedCsvData, setParsedCsvData] = useState(null);
+    const [showFieldSelection, setShowFieldSelection] = useState(false);
+    const [csvHeaders, setCsvHeaders] = useState([]);
+    const [selectedFields, setSelectedFields] = useState([]);
+
     const submit = useSubmit();
     const { stores } = useLoaderData();
 
@@ -213,6 +169,12 @@ export default function Dashboard() {
                 throw new Error('No valid data found in CSV');
             }
 
+            const headers = Object.keys(parsedData[0]);
+
+            setCsvHeaders(headers);
+            setParsedCsvData(parsedData);
+            setShowFieldSelection(true);
+
             const formData = new FormData();
             formData.append('intent', 'processFile');
             formData.append('stores', JSON.stringify(parsedData));
@@ -229,6 +191,46 @@ export default function Dashboard() {
             setLoading(false);
         }
     }, [submit]);
+
+    const handleFieldSelection = (header,checked) => {
+        setSelectedFields(prev => 
+            checked ? [...prev,header]
+            :prev.filter(field => field !== header)
+        )
+    }
+
+    const handleProcessSelectedFields = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const fieldDefinitions = selectedFields.map(field => ({
+                name: field,
+                key: field.toLowerCase().replace(/\s+/g, '_'),
+                type: "single_line_text_field"
+            }));
+
+            const formData = new FormData();
+            formData.append('intent', 'processFile');
+            formData.append('fieldDefinitions', JSON.stringify(fieldDefinitions));
+            formData.append('stores', JSON.stringify(parsedCsvData));
+
+            await submit(formData, {
+                method: 'post',
+                replace: true
+            });
+
+            setShowFieldSelection(false);
+            setParsedCsvData(null);
+            setCsvHeaders([]);
+            setSelectedFields([]);
+
+        } catch (err) {
+            setError(err.message || 'Failed to process fields');
+        } finally {
+            setLoading(false);
+        }
+    }
 
     const toggleOpenFileDialog = useCallback(
         () => setOpenFileDialog((openFileDialog) => !openFileDialog),
@@ -409,24 +411,55 @@ export default function Dashboard() {
             {selected === 'Import' && (
                 <BlockStack gap='1000'>
                     <Card title="Import Store Locations" sectioned>
-                        <BlockStack gap='1000'> 
-                            <DropZone
-                                openFileDialog={openFileDialog}
-                                onDrop={handleDropZoneDrop}
-                                onFileDialogClose={toggleOpenFileDialog}
-                            >
-                                <Box padding="4" border="dashed" borderColor="gray">
-                                    <BlockStack>
-                                        <Text variant="bodyMd">Drop CSV file here or click to upload</Text>
-                                    </BlockStack>
-                                </Box>
-                            </DropZone>
-                            <Box padding="4" background="surfaceSecondary">
-                                <Text variant="bodyMd" strong>CSV Format Guide</Text>
-                                <Text>Required columns: Store Name, Address, City, State, ZIP, Country, Phone, Email, Hours</Text>
-                                <Text variant="link">Download template</Text>
-                            </Box>
-                        </BlockStack>
+                        {showFieldSelection ? (
+                            <BlockStack gap='400'>
+                                <Text variant="headingMd">Select Fields to Import</Text>
+                                <BlockStack gap='300'>
+                                    {csvHeaders.map((header) => (
+                                        <Checkbox
+                                            key={header}
+                                            label={header}
+                                            checked={selectedFields.includes(header)}
+                                            onChange={(checked) => handleFieldSelection(header, checked)}
+                                        />
+                                    ))}
+                                </BlockStack>
+                                <InlineStack gap='300'>
+                                    <Button
+                                        primary
+                                        onClick={handleProcessSelectedFields}
+                                        disabled={selectedFields.length === 0}
+                                        loading={loading}
+                                    >
+                                        Process Selected Fields
+                                    </Button>
+                                    <Button
+                                        onClick={() => {
+                                            setShowFieldSelection(false);
+                                            setParsedCsvData(null);
+                                            setCsvHeaders([]);
+                                            setSelectedFields([]);
+                                        }}
+                                    >
+                                        Cancel
+                                    </Button>
+                                </InlineStack>
+                            </BlockStack>
+                        ) : (
+                            <BlockStack gap='1000'> 
+                                <DropZone
+                                    openFileDialog={openFileDialog}
+                                    onDrop={handleDropZoneDrop}
+                                    onFileDialogClose={toggleOpenFileDialog}
+                                >
+                                    <Box padding="4" border="dashed" borderColor="gray">
+                                        <BlockStack>
+                                            <Text variant="bodyMd">Drop CSV file here or click to upload</Text>
+                                        </BlockStack>
+                                    </Box>
+                                </DropZone>
+                            </BlockStack>
+                        )}
                     </Card>
                 </BlockStack>
             )}
