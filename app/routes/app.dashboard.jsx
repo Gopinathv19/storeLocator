@@ -11,7 +11,8 @@ import {
     DropZone,
     Form,
     FormLayout,
-    TextField
+    TextField,
+    Checkbox
 } from '@shopify/polaris';
 import { 
     StoreIcon, 
@@ -144,6 +145,10 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [isAddingStore, setIsAddingStore] = useState(false);
+    const [csvHeaders,setCsvHeaders] = useState([]);
+    const [selectedFields,setSelectedFields] = useState([]);
+    const [parsedData,setParsedData] = useState(null);
+    const [showFieldSelection,setShowFieldSelection] = useState(false);
     const submit = useSubmit();
     const { stores } = useLoaderData();
 
@@ -213,27 +218,73 @@ export default function Dashboard() {
                 throw new Error('No valid data found in CSV');
             }
 
-            const formData = new FormData();
-            formData.append('intent', 'processFile');
-            formData.append('stores', JSON.stringify(parsedData));
-
-            // Submit and let Remix handle the response
-            await submit(formData, { 
-                method: 'post',
-                replace: true // This will update the page with the server response
-            });
+            // Get headers from the first row
+            const headers = Object.keys(parsedData[0]);
+            setCsvHeaders(headers);
+            setParsedData(parsedData);
+            setShowFieldSelection(true); // Show the checkbox selection UI
 
         } catch (err) {
             setError(err.message || 'Failed to process file');
         } finally {
             setLoading(false);
         }
-    }, [submit]);
+    }, []);
 
     const toggleOpenFileDialog = useCallback(
         () => setOpenFileDialog((openFileDialog) => !openFileDialog),
         [],
     );
+
+    const handleFieldSelection = (header, checked) => {
+        setSelectedFields(prev => 
+            checked ? [...prev, header] : prev.filter(field => field !== header)
+        );
+    };
+
+    const handleProcessSelectedFields = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            // Create field definitions based on selected fields
+            const fieldDefinitions = selectedFields.map(field => ({
+                name: field,
+                key: field.toLowerCase().replace(/\s+/g, '_'),
+                type: "single_line_text_field" // Default type, can be adjusted
+            }));
+
+            // Filter the parsed CSV data to only include selected fields
+            const filteredData = parsedData.map(row => {
+                const filteredRow = {};
+                selectedFields.forEach(field => {
+                    filteredRow[field] = row[field] || '';
+                });
+                return filteredRow;
+            });
+
+            const formData = new FormData();
+            formData.append('intent', 'processFile');
+            formData.append('fieldDefinitions', JSON.stringify(fieldDefinitions));
+            formData.append('stores', JSON.stringify(filteredData));
+
+            await submit(formData, {
+                method: 'post',
+                replace: true
+            });
+
+            // Reset state after processing
+            setShowFieldSelection(false);
+            setParsedData(null);
+            setCsvHeaders([]);
+            setSelectedFields([]);
+
+        } catch (err) {
+            setError(err.message || 'Failed to process fields');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const buttons = [
         { name: 'Stores', icon: StoreIcon },
@@ -429,6 +480,29 @@ export default function Dashboard() {
                         </BlockStack>
                     </Card>
                 </BlockStack>
+            )}
+
+            {showFieldSelection && (
+                <Card sectioned>
+                    <Text variant="headingMd">Select Fields to Import</Text>
+                    <BlockStack gap="300">
+                        {csvHeaders.map((header) => (
+                            <Checkbox
+                                key={header}
+                                label={header}
+                                checked={selectedFields.includes(header)}
+                                onChange={(checked) => handleFieldSelection(header, checked)}
+                            />
+                        ))}
+                    </BlockStack>
+                    <Button
+                        primary
+                        onClick={handleProcessSelectedFields}
+                        disabled={selectedFields.length === 0}
+                    >
+                        Process Selected Fields
+                    </Button>
+                </Card>
             )}
         </Page>
     );
