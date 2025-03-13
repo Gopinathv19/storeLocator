@@ -59,6 +59,8 @@ export const action = async ({ request }) => {
     if (intent === 'processFile') {
         try {
             const storesData = JSON.parse(formData.get('stores'));
+            const selectedFields = JSON.parse(formData.get('selectedFields'));
+
             if (!Array.isArray(storesData) || storesData.length === 0) {
                 return json({ 
                     success: false,
@@ -69,41 +71,36 @@ export const action = async ({ request }) => {
             // Check metaobject definition
             const checkResult = await checkMetaobjectDefinition(admin);
             if (!checkResult.exists) {
-                const createDefinitionResult = await createMetaobjectDefinition(admin);
+                // Create definition with selected fields
+                const createDefinitionResult = await createMetaobjectDefinition(admin, selectedFields);
                 if (createDefinitionResult.status !== 200) {
                     return json({ 
                         success: false,
-                        message: 'Failed to create metaobject definition' 
+                        message: 'Failed to create metaobject definition',
+                        details: createDefinitionResult.error
                     }, { status: 500 });
                 }
             }
 
-            // Create store metaobjects
+            // Create store metaobjects with selected fields
             const results = [];
             for (const row of storesData) {
-                const storeData = {
-                    storeName: row['Store Name'],
-                    address: row['Address'],
-                    city: row['City'],
-                    state: row['State'],
-                    zip: row['ZIP'],
-                    country: row['Country'],
-                    phone: row['Phone'] || '',
-                    email: row['Email'] || '',
-                    hours: row['Hours'] || '',
-                    services: row['Services'] || ''
-                };
+                // Only include selected fields in the store data
+                const storeData = {};
+                selectedFields.forEach(field => {
+                    storeData[field] = row[field] || '';
+                });
 
                 try {
                     const createResult = await createStoreMetaobject(admin, storeData);
                     results.push({
-                        storeName: storeData.storeName,
+                        storeName: storeData[selectedFields[0]] || 'Unknown', // Use first field as store identifier
                         success: createResult.status === 200,
                         error: createResult.status !== 200 ? createResult.error : null
                     });
                 } catch (err) {
                     results.push({
-                        storeName: storeData.storeName,
+                        storeName: storeData[selectedFields[0]] || 'Unknown',
                         success: false,
                         error: err.message
                     });
@@ -114,7 +111,7 @@ export const action = async ({ request }) => {
             if (failedStores.length > 0) {
                 return json({
                     success: false,
-                    message: `Imported ${results.length - failedStores.length} stores. ${failedStores.length} stores failed.`,
+                    message: `Imported ${results.length - failedStores.length} stores. ${failedStores.length} failed.`,
                     failedStores
                 }, { status: 207 });
             }
@@ -247,13 +244,6 @@ export default function Dashboard() {
             setLoading(true);
             setError(null);
 
-            // Create field definitions based on selected fields
-            const fieldDefinitions = selectedFields.map(field => ({
-                name: field,
-                key: field.toLowerCase().replace(/\s+/g, '_'),
-                type: "single_line_text_field" // Default type, can be adjusted
-            }));
-
             // Filter the parsed CSV data to only include selected fields
             const filteredData = parsedData.map(row => {
                 const filteredRow = {};
@@ -265,7 +255,7 @@ export default function Dashboard() {
 
             const formData = new FormData();
             formData.append('intent', 'processFile');
-            formData.append('fieldDefinitions', JSON.stringify(fieldDefinitions));
+            formData.append('selectedFields', JSON.stringify(selectedFields));
             formData.append('stores', JSON.stringify(filteredData));
 
             await submit(formData, {

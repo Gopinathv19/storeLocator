@@ -26,9 +26,15 @@ const checkMetaobjectDefinition = async (admin) => {
   }
 }
 
-export const createMetaobjectDefinition = async (request) => {
-  const { admin } = await authenticate.admin(request); // Authenticate the user
+export const createMetaobjectDefinition = async (admin, selectedFields) => {
   try {
+    // Transform selected fields into field definitions
+    const fieldDefinitions = selectedFields.map(field => ({
+      name: field,
+      key: field.toLowerCase().replace(/\s+/g, '_'),
+      type: "single_line_text_field" // Default type for all fields
+    }));
+
     const response = await admin.graphql(
       `#graphql
       mutation CreateMetaobjectDefinition($definition: MetaobjectDefinitionCreateInput!) {
@@ -54,18 +60,7 @@ export const createMetaobjectDefinition = async (request) => {
           definition: {
             name: "Store Location",
             type: "store_location",
-            fieldDefinitions: [
-              { name: "Store Name", key: "store_name", type: "single_line_text_field" },
-              { name: "Address", key: "address", type: "multi_line_text_field" },
-              { name: "City", key: "city", type: "single_line_text_field" },
-              { name: "State", key: "state", type: "single_line_text_field" },
-              { name: "ZIP", key: "zip", type: "single_line_text_field" },
-              { name: "Country", key: "country", type: "single_line_text_field" },
-              { name: "Phone", key: "phone", type: "single_line_text_field" },
-              { name: "Email", key: "email", type: "single_line_text_field" },
-              { name: "Hours", key: "hours", type: "multi_line_text_field" },
-              { name: "Services", key: "services", type: "multi_line_text_field" }
-            ]
+            fieldDefinitions: fieldDefinitions
           }
         }
       }
@@ -73,17 +68,30 @@ export const createMetaobjectDefinition = async (request) => {
 
     const data = await response.json();
     if (data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
-      const errors = data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors;
-      throw new Error(JSON.stringify(errors));
+      return {
+        status: 500,
+        error: 'Failed to create metaobject definition',
+        details: data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors
+      };
     }
-    return json({ success: true });  
+    return { status: 200, success: true };
   } catch (error) {
-    return json({ error: error.message }, { status: 500 });  
+    return {
+      status: 500,
+      error: 'Failed to create metaobject definition',
+      details: error.message
+    };
   }
 };
 
 const createStoreMetaobject = async (admin, storeData) => {
   try {
+    // Transform store data into fields array dynamically
+    const fields = Object.entries(storeData).map(([key, value]) => ({
+      key: key.toLowerCase().replace(/\s+/g, '_'),
+      value: value?.toString() || ''
+    }));
+
     const response = await admin.graphql(
       `#graphql
       mutation CreateMetaobject($metaobject: MetaobjectCreateInput!) {
@@ -106,19 +114,8 @@ const createStoreMetaobject = async (admin, storeData) => {
         variables: {
           metaobject: {
             type: "store_location",
-            handle: storeData.storeName.toLowerCase().replace(/\s+/g, '-'),
-            fields: [
-              { key: "store_name", value: storeData.storeName },
-              { key: "address", value: storeData.address },
-              { key: "city", value: storeData.city },
-              { key: "state", value: storeData.state },
-              { key: "zip", value: storeData.zip },
-              { key: "country", value: storeData.country },
-              { key: "phone", value: storeData.phone },
-              { key: "email", value: storeData.email },
-              { key: "hours", value: storeData.hours },
-              { key: "services", value: storeData.services }
-            ]
+            handle: `store-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            fields: fields
           }
         }
       }
