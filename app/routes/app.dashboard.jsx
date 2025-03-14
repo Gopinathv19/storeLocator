@@ -76,6 +76,8 @@ export const action = async ({ request }) => {
         try {
             const storesData = JSON.parse(formData.get('stores'));
             const selectedFields = JSON.parse(formData.get('selectedFields'));
+            console.log('Stores Data:', storesData);
+            console.log('Selected Fields:', selectedFields);
 
             if (!Array.isArray(storesData) || storesData.length === 0) {
                 return json({ 
@@ -212,6 +214,8 @@ export default function Dashboard() {
         }
     };
 
+
+    // this two funcitons are going to handle the drop down of the of the add store manually 
     const handleAddStoreClick = () => {
         setIsAddingStore(!isAddingStore);
     };
@@ -226,6 +230,10 @@ export default function Dashboard() {
         setSelected(value);
     }, []);
 
+    // end of the functionality
+
+    // the main function going to handle the csv data
+
     const handleDropZoneDrop = useCallback(async (dropFiles) => {
         if (!dropFiles.length) return;
 
@@ -235,6 +243,7 @@ export default function Dashboard() {
 
             const file = dropFiles[0];
             const parsedData = await csvReader(file);
+            console.log('Parsed Data:', parsedData);
 
             if (!Array.isArray(parsedData) || parsedData.length === 0) {
                 throw new Error('No valid data found in CSV');
@@ -251,6 +260,7 @@ export default function Dashboard() {
                 
                 if (newHeaderFields.length > 0) {
                     setNewFields(newHeaderFields);
+                    console.log('Selected Fields:', selectedFields);
                     setShowFieldConfirmation(true);
                 } else {
                     // No new fields, just show selection with existing fields pre-selected
@@ -273,6 +283,8 @@ export default function Dashboard() {
         [],
     );
 
+
+    // this function is used to handle the checked box msg 
     const handleFieldSelection = (header, checked) => {
         setSelectedFields(prev => 
             checked ? [...prev, header] : prev.filter(field => field !== header)
@@ -292,6 +304,9 @@ export default function Dashboard() {
         setShowFieldSelection(true);
     };
 
+
+    
+
     const handleProcessSelectedFields = async () => {
         try {
             setLoading(true);
@@ -305,6 +320,7 @@ export default function Dashboard() {
                 });
                 return filteredRow;
             });
+            console.log('Filtered Data:', filteredData);
 
             const formData = new FormData();
             formData.append('intent', 'processFile');
@@ -580,3 +596,4 @@ export default function Dashboard() {
         </Page>
     );
 }
+
