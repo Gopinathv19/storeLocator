@@ -1,14 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
 import { 
     Page, 
-    Card, 
-    Text, 
-    ButtonGroup, 
-    Button,
-    Box, 
-    InlineStack, 
-    BlockStack,
-    DropZone,
+        Card, 
+        Text, 
+        ButtonGroup, 
+        Button,
+        Box, 
+        InlineStack, 
+        BlockStack,
+        DropZone,
     Form,
     FormLayout,
     TextField,
@@ -69,16 +69,19 @@ export const loader = async ({ request }) => {
 
 // Action function to handle file uploads and store creation
 export const action = async ({ request }) => {
+  console.log("Debugging");
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get('intent');
 
   if (intent === 'processFile') {
     try {
+      console.log('Processing file upload...');
+      
+      // Parse and validate input data
       const storesData = JSON.parse(formData.get('stores'));
       const selectedFields = JSON.parse(formData.get('selectedFields'));
       
-      // Validate input data
       if (!Array.isArray(storesData) || storesData.length === 0) {
         return json({
           success: false,
@@ -93,89 +96,109 @@ export const action = async ({ request }) => {
         }, { status: 400 });
       }
 
-      console.log('Processing:', { selectedFields, storeCount: storesData.length });
+      console.log('Processing data:', { 
+        selectedFieldsCount: selectedFields.length, 
+        storeCount: storesData.length,
+        sampleFields: selectedFields.slice(0, 3),
+        sampleStore: storesData[0]
+      });
 
-      // Check existing definition
-      const { exists, definition, fields } = await checkMetaobjectDefinition(admin);
-      console.log('Definition check:', { exists, definition });
+      // Step 1: Check for existing definition
+      console.log('Checking for existing definition...');
+      const checkResult = await checkMetaobjectDefinition(admin);
+      console.log('Definition check result:', checkResult);
 
       let currentDefinition;
       
-      // Handle definition creation/update
-      try {
-        if (!exists) {
-          console.log('Creating new definition...');
-          const createResult = await createMetaobjectDefinition(admin, selectedFields);
-          currentDefinition = createResult.definition;
-        } else {
-          const existingFieldNames = fields.map(f => f.name);
-          const newFields = selectedFields.filter(field => !existingFieldNames.includes(field));
-          
-          if (newFields.length > 0) {
-            console.log('Updating definition with new fields:', newFields);
-            const updateResult = await updateMetaobjectDefinition(
-              admin,
-              definition.id,
-              newFields,
-              fields
-            );
-            currentDefinition = updateResult.definition;
-          } else {
-            currentDefinition = definition;
-          }
+      // Step 2: Create or update definition
+      if (!checkResult.exists) {
+        console.log('No definition exists, creating new one...');
+
+        const createResult = await createMetaobjectDefinition(admin, selectedFields);
+        console.log('Definition creation result:', createResult);
+        
+        // Wait for definition to be available in Shopify's system
+        console.log('Waiting for definition to be available...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Verify definition was created
+        const verifyResult = await checkMetaobjectDefinition(admin);
+        console.log('Definition verification result:', verifyResult);
+        
+        if (!verifyResult.exists) {
+          throw new Error('Failed to create metaobject definition');
         }
-      } catch (error) {
-        return json({
-          success: false,
-          message: `Failed to ${exists ? 'update' : 'create'} definition: ${error.message}`
-        }, { status: 500 });
+        
+        currentDefinition = verifyResult.definition;
+      } else {
+        console.log('Definition exists, checking for field updates...');
+        currentDefinition = checkResult.definition;
+        
+        // Check for new fields that need to be added
+        const existingFieldNames = checkResult.fields.map(f => f.name);
+        const newFields = selectedFields.filter(field => !existingFieldNames.includes(field));
+        
+        if (newFields.length > 0) {
+          console.log('New fields to add:', newFields);
+ 
+        }
       }
 
-      // Process stores with batching
-      const batchSize = 5;
+      // Step 3: Process stores in smaller batches
+      console.log('Processing stores...');
+      const batchSize = 3; // Process fewer stores at a time
       const results = [];
       
       for (let i = 0; i < storesData.length; i += batchSize) {
+        console.log(`Processing batch ${i/batchSize + 1}...`);
         const batch = storesData.slice(i, i + batchSize);
-        const batchPromises = batch.map(async (storeData) => {
+        
+        // Process each store sequentially to avoid race conditions
+        for (const storeData of batch) {
           try {
+            console.log('Creating store:', storeData);
             const result = await createStoreMetaobject(
               admin,
               storeData,
               currentDefinition.fieldDefinitions
             );
-            return {
+            
+            results.push({
               storeName: storeData[selectedFields[0]] || 'Unknown',
               success: true,
               id: result.store.id
-            };
+            });
+            
+            // Add a small delay between store creations
+            await new Promise(resolve => setTimeout(resolve, 500));
           } catch (error) {
             console.error('Store creation failed:', error);
-            return {
+            results.push({
               storeName: storeData[selectedFields[0]] || 'Unknown',
               success: false,
               error: error.message
-            };
+            });
           }
-        });
-
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults);
+        }
       }
 
-      // Analyze results
+      // Step 4: Analyze and return results
       const successCount = results.filter(r => r.success).length;
       const failedCount = results.length - successCount;
-      const failedStores = results.filter(r => !r.success);
+      
+      console.log('Import complete:', { 
+        total: results.length,
+        success: successCount,
+        failed: failedCount
+      });
 
       return json({
         success: successCount > 0,
         message: `Created ${successCount} stores${failedCount > 0 ? `, ${failedCount} failed` : ''}`,
         results,
-        failedStores: failedCount > 0 ? failedStores : undefined,
-        definition: currentDefinition
+        failedStores: results.filter(r => !r.success),
       }, { 
-        status: failedCount > 0 ? 207 : 200 
+        status: failedCount > 0 && successCount === 0 ? 500 : 200 
       });
 
     } catch (error) {
@@ -353,15 +376,27 @@ export default function Dashboard() {
             setLoading(true);
             setError(null);
 
-            // Filter the parsed CSV data to only include selected fields
+            if (!selectedFields.length) {
+                throw new Error('Please select at least one field');
+            }
+
+            if (!parsedData || !parsedData.length) {
+                throw new Error('No data to process');
+            }
+
+            console.log('Processing selected fields:', selectedFields);
+
+            // Filter and validate data
             const filteredData = parsedData.map(row => {
                 const filteredRow = {};
                 selectedFields.forEach(field => {
-                    filteredRow[field] = row[field] || '';
+                    filteredRow[field] = (row[field] || '').trim();
                 });
+                console.log(filteredRow);
                 return filteredRow;
             });
-            console.log('Filtered Data:', filteredData);
+
+            console.log('Filtered data sample:', filteredData[0]);
 
             const formData = new FormData();
             formData.append('intent', 'processFile');
@@ -375,12 +410,14 @@ export default function Dashboard() {
                 ));
             }
 
-            await submit(formData, {
+            console.log('Submitting form data...');
+            const response = await submit(formData, {
                 method: 'post',
-                replace: true
             });
 
-            // Reset state after processing
+            console.log('Form submission complete, response:', response);
+
+            // Reset state after successful processing
             setShowFieldSelection(false);
             setParsedData(null);
             setCsvHeaders([]);
@@ -389,7 +426,9 @@ export default function Dashboard() {
 
             // Switch to Stores tab after successful import
             setSelected('Stores');
+            
         } catch (err) {
+            console.error('Process fields error:', err);
             setError(err.message || 'Failed to process fields');
         } finally {
             setLoading(false);
@@ -428,7 +467,7 @@ export default function Dashboard() {
             {selected === 'Stores' && (
                 <Card>
                     <InlineStack align="space-between">
-                        <Text variant='heading2xl' as='h6'>Store Locations</Text>
+                    <Text variant='heading2xl' as='h6'>Store Locations</Text>
                         <Button 
                             onClick={handleAddStoreClick}
                             primary
@@ -517,50 +556,50 @@ export default function Dashboard() {
                         </Card>
                     ) : (
                         <>
-                            {loading ? (
-                                <Text>Loading stores...</Text>
-                            ) : error ? (
-                                <Text>Error: {error}</Text>
-                            ) : !stores || stores.length === 0 ? (
-                                <Card>
-                                    <BlockStack gap="400" alignment="center">
-                                        <Text variant="bodyMd" color="subdued">
+                    {loading ? (
+                        <Text>Loading stores...</Text>
+                    ) : error ? (
+                        <Text>Error: {error}</Text>
+                    ) : !stores || stores.length === 0 ? (
+                        <Card>
+                            <BlockStack gap="400" alignment="center">
+                                <Text variant="bodyMd" color="subdued">
                                             No store locations found. Click 'Add Store' to create one.
-                                        </Text>
-                                    </BlockStack>
-                                </Card>
-                            ) : (
-                                stores.map((store) => (
-                                    <Card key={store.id || store.storeName}>
-                                        <BlockStack gap="400">
-                                            <InlineStack gap="400" align='space-between'>
-                                                <Box>
-                                                    <Text variant="headingMd">{store.store_name}</Text>
-                                                    <Text>{`${store.address}, ${store.city}, ${store.state} ${store.zip}`}</Text>
-                                                </Box>
-                                                <ButtonGroup>
-                                                    <Button size='slim'>Edit</Button>
-                                                    <Button size='slim' destructive>Delete</Button>
-                                                </ButtonGroup>
-                                            </InlineStack>
-                                            <InlineStack gap="1000">
-                                                <Box>
-                                                    <Text variant="headingSm">Hours</Text>
-                                                    <Text>{store.hours}</Text>
-                                                </Box>
-                                                <Box>
-                                                    <Text variant="headingSm">Contact</Text>
-                                                    <Text>{store.phone}</Text>
-                                                    <Text>{store.email}</Text>
-                                                </Box>
-                                                <Box>
-                                                    <Text variant="headingSm">Services</Text>
-                                                    <Text>{store.services}</Text>
-                                                </Box>
-                                            </InlineStack>
-                                        </BlockStack>
-                                    </Card>
-                                ))
+                                </Text>
+                            </BlockStack>
+                        </Card>
+                    ) : (
+                        stores.map((store) => (
+                            <Card key={store.id || store.storeName}>
+                                <BlockStack gap="400">
+                                    <InlineStack gap="400" align='space-between'>
+                                        <Box>
+                                            <Text variant="headingMd">{store.store_name}</Text>
+                                            <Text>{`${store.address}, ${store.city}, ${store.state} ${store.zip}`}</Text>
+                                        </Box>
+                                        <ButtonGroup>
+                                            <Button size='slim'>Edit</Button>
+                                            <Button size='slim' destructive>Delete</Button>
+                                        </ButtonGroup>
+                                    </InlineStack>
+                                    <InlineStack gap="1000">
+                                        <Box>
+                                            <Text variant="headingSm">Hours</Text>
+                                            <Text>{store.hours}</Text>
+                                        </Box>
+                                        <Box>
+                                            <Text variant="headingSm">Contact</Text>
+                                            <Text>{store.phone}</Text>
+                                            <Text>{store.email}</Text>
+                                        </Box>
+                                        <Box>
+                                            <Text variant="headingSm">Services</Text>
+                                            <Text>{store.services}</Text>
+                                        </Box>
+                                    </InlineStack>
+                                </BlockStack>
+                            </Card>
+                        ))
                             )}
                         </>
                     )}
