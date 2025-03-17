@@ -1,185 +1,90 @@
-import { json } from '@remix-run/node';
- 
+// Helper function for field key generation
+const generateFieldKey = (fieldName) => {
+  return fieldName.toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/^[^a-z]/, 'f$&')
+    .replace(/_+/g, '_')
+    .substring(0, 64);
+};
 
-const checkMetaobjectDefinition = async (admin) => {
+// Helper for field validation
+const validateField = (field) => {
+  if (!field.name || typeof field.name !== 'string') {
+    throw new Error(`Invalid field name: ${field.name}`);
+  }
+  return {
+    name: field.name.trim(),
+    key: field.key || generateFieldKey(field.name),
+    type: field.type || "single_line_text_field"
+  };
+};
+
+const fetchStores = async (admin) => {
   try {
     const response = await admin.graphql(
       `#graphql
       query {
-        metaobjectDefinitions(first: 10) {
+        metaobjects(type: "store_location", first: 50) {
           edges {
             node {
-              type
+              id
+              handle
+              fields {
+                key
+                value
+                definition {
+                  name
+                }
+              }
             }
           }
         }
       }`
     );
+
     const data = await response.json();
-    if(data.errors){
-      return {status : 500 , error : 'Failed to check metaobject definition',details : data.errors}
+    console.log('Fetch stores response:', data);
+
+    if (data.errors) {
+      throw new Error(data.errors[0].message);
     }
-    const storeDefinition = data?.data?.metaobjectDefinitions?.edges?.find(edge => edge.node.type === 'store_location');
-    return {status : 200 , exists : !!storeDefinition};
-  } catch (error) {
-    return {status : 500 , error : 'Failed to check metaobject definition',details : error.message}
-  }
-}
 
-export const createMetaobjectDefinition = async (admin, selectedFields) => {
-  try {
-    // Transform selected fields into field definitions
-    const fieldDefinitions = selectedFields.map(field => ({
-      name: field,
-      key: field.toLowerCase().replace(/\s+/g, '_'),
-      type: "single_line_text_field" // Default type for all fields
-    }));
-
-    const response = await admin.graphql(
-      `#graphql
-      mutation CreateMetaobjectDefinition($definition: MetaobjectDefinitionCreateInput!) {
-        metaobjectDefinitionCreate(definition: $definition) {
-          metaobjectDefinition {
-            name
-            type
-            fieldDefinitions {
-              name
-              key
-              type
-            }
-          }
-          userErrors {
-            field
-            message
-            code
-          }
-        }
-      }`,
-      {
-        variables: {
-          definition: {
-            name: "Store Location",
-            type: "store_location",
-            fieldDefinitions: fieldDefinitions
-          }
-        }
-      }
-    );
-
-    const data = await response.json();
-    if (data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
-      return {
-        status: 500,
-        error: 'Failed to create metaobject definition',
-        details: data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors
+    // Transform the data into a more usable format
+    const stores = data.data.metaobjects.edges.map(edge => {
+      const store = {
+        id: edge.node.id,
+        handle: edge.node.handle
       };
-    }
-    return { status: 200, success: true };
-  } catch (error) {
-    return {
-      status: 500,
-      error: 'Failed to create metaobject definition',
-      details: error.message
-    };
-  }
-};
 
-const createStoreMetaobject = async (admin, storeData) => {
-  try {
-    // Transform store data into fields array dynamically
-    const fields = Object.entries(storeData).map(([key, value]) => ({
-      key: key.toLowerCase().replace(/\s+/g, '_'),
-      value: value?.toString() || ''
-    }));
+      // Map fields using their original names
+      edge.node.fields.forEach(field => {
+        const fieldName = field.definition.name.toLowerCase()
+          .replace(/\s+/g, '_')
+          .replace(/[^a-z0-9_]/g, '_');
+        store[fieldName] = field.value;
+      });
 
-    const response = await admin.graphql(
-      `#graphql
-      mutation CreateMetaobject($metaobject: MetaobjectCreateInput!) {
-        metaobjectCreate(metaobject: $metaobject) {
-          metaobject {
-            handle
-            fields {
-              key
-              value
-            }
-          }
-          userErrors {
-            field
-            message
-            code
-          }
-        }
-      }`,
-      {
-        variables: {
-          metaobject: {
-            type: "store_location",
-            handle: `store-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            fields: fields
-          }
-        }
-      }
-    );
-
-    const data = await response.json();
-    if (data.errors || data?.data?.metaobjectCreate?.userErrors?.length > 0) {
-      return {
-        status: 500,
-        error: 'Failed to create store metaobject',
-        details: data.errors || data?.data?.metaobjectCreate?.userErrors
-      };
-    }
+      return store;
+    });
 
     return {
       status: 200,
-      data: data?.data?.metaobjectCreate?.metaobject
+      stores,
+      count: stores.length
     };
+
   } catch (error) {
+    console.error('Fetch stores error:', error);
     return {
       status: 500,
-      error: 'Failed to create store metaobject',
+      error: 'Failed to fetch stores',
       details: error.message
     };
   }
 };
- 
 
-const fetchStores = async (admin) =>{
-  const response = await admin.graphql(
-    `#graphql
-    query {
-      metaobjects(type: "store_location", first: 50) {
-        edges {
-          node {
-            handle
-            fields {
-              key
-              value
-            }
-          }
-        }
-      }
-    }`
-  );
-
-  const data = await response.json();
-
-  if(data.errors){
-    return {status : 500 , error : 'Failed to fetch stores',details : data.errors}
-  }
-
-  const stores = data.data.metaobjects.edges.map(edge =>{
-    const store = {};
-    edge.node.fields.forEach(field =>{
-      store[field.key] = field.value;
-    })
-    return store;
-  });
-  return {status : 200,stores};
-
-}
-
-export const fetchMetaobjectDefinitionDetails = async (admin) => {
+const fetchMetaobjectDefinitionDetails = async (admin) => {
   try {
     const response = await admin.graphql(
       `#graphql
@@ -229,7 +134,105 @@ export const fetchMetaobjectDefinitionDetails = async (admin) => {
   }
 };
 
-export const updateMetaobjectDefinition = async (admin, definitionId, newFields) => {
+const checkMetaobjectDefinition = async (admin) => {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      query {
+        metaobjectDefinitions(first: 10) {
+          edges {
+            node {
+              id
+              type
+              name
+              fieldDefinitions {
+                name
+                key
+                type
+              }
+            }
+          }
+        }
+      }`
+    );
+    const data = await response.json();
+    console.log('Definition check response:', data);
+
+    if (data.errors) {
+      throw new Error(data.errors[0].message);
+    }
+
+    const definitions = data?.data?.metaobjectDefinitions?.edges || [];
+    const storeDefinition = definitions.find(edge => edge.node.type === 'store_location');
+
+    return {
+      exists: Boolean(storeDefinition),
+      definition: storeDefinition?.node,
+      fields: storeDefinition?.node?.fieldDefinitions || []
+    };
+  } catch (error) {
+    console.error('Check definition error:', error);
+    throw new Error(`Failed to check metaobject definition: ${error.message}`);
+  }
+};
+
+const createMetaobjectDefinition = async (admin, selectedFields) => {
+  try {
+    // Validate and transform fields
+    const fieldDefinitions = selectedFields.map(field => {
+      if (!field) throw new Error('Invalid field name');
+      return validateField({ name: field });
+    });
+
+    const mutation = `#graphql
+      mutation CreateMetaobjectDefinition($input: MetaobjectDefinitionInput!) {
+        metaobjectDefinitionCreate(definition: $input) {
+          metaobjectDefinition {
+            id
+            name
+            type
+            fieldDefinitions {
+              name
+              key
+              type
+            }
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const response = await admin.graphql(mutation, {
+      variables: {
+        input: {
+          name: "Store Location",
+          type: "store_location",
+          fieldDefinitions
+        }
+      }
+    });
+
+    const result = await response.json();
+    console.log('Definition creation result:', result);
+
+    if (result.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
+      throw new Error(result.data.metaobjectDefinitionCreate.userErrors[0].message);
+    }
+
+    return {
+      success: true,
+      definition: result.data.metaobjectDefinitionCreate.metaobjectDefinition
+    };
+  } catch (error) {
+    console.error('Create definition error:', error);
+    throw error;
+  }
+};
+
+const updateMetaobjectDefinition = async (admin, definitionId, newFields) => {
   try {
     // Get existing definition first
     const definitionResult = await fetchMetaobjectDefinitionDetails(admin);
@@ -299,8 +302,79 @@ export const updateMetaobjectDefinition = async (admin, definitionId, newFields)
   }
 };
 
-export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition,createStoreMetaobject};
+const createStoreMetaobject = async (admin, storeData, fieldDefinitions, retryCount = 0) => {
+  try {
+    // Transform and validate store data
+    const fields = Object.entries(storeData).map(([name, value]) => {
+      const fieldDef = fieldDefinitions.find(def => 
+        def.name.toLowerCase() === name.toLowerCase() || 
+        def.key === generateFieldKey(name)
+      );
+      
+      if (!fieldDef) return null;
+
+      return {
+        key: fieldDef.key,
+        value: String(value || '').trim()
+      };
+    }).filter(Boolean);
+
+    if (fields.length === 0) {
+      throw new Error('No valid fields found for store creation');
+    }
+
+    const mutation = `#graphql
+      mutation CreateStoreMetaobject($input: MetaobjectInput!) {
+        metaobjectCreate(metaobject: $input) {
+          metaobject {
+            id
+            handle
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const response = await admin.graphql(mutation, {
+      variables: {
+        input: {
+          type: "store_location",
+          fields: fields
+        }
+      }
+    });
+
+    const result = await response.json();
+    console.log('Store creation result:', result);
+
+    if (result.data?.metaobjectCreate?.userErrors?.length > 0) {
+      throw new Error(result.data.metaobjectCreate.userErrors[0].message);
+    }
+
+    return {
+      success: true,
+      store: result.data.metaobjectCreate.metaobject
+    };
+  } catch (error) {
+    // Implement retry logic for transient errors
+    if (retryCount < 3 && error.message.includes('network')) {
+      console.log(`Retrying store creation (attempt ${retryCount + 1})`);
+      return createStoreMetaobject(admin, storeData, fieldDefinitions, retryCount + 1);
+    }
+    console.error('Create store error:', error);
+    throw error;
+  }
+};
 
 
-
-  
+export {
+  checkMetaobjectDefinition,
+  createMetaobjectDefinition,
+  updateMetaobjectDefinition,
+  createStoreMetaobject,
+  fetchStores,
+  fetchMetaobjectDefinitionDetails
+};

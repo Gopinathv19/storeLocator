@@ -29,7 +29,8 @@ import {
     checkMetaobjectDefinition, 
     createMetaobjectDefinition, 
     createStoreMetaobject,
-    fetchMetaobjectDefinitionDetails
+    fetchMetaobjectDefinitionDetails,
+    updateMetaobjectDefinition
 } from '../service/storeService';
 import { authenticate } from '../shopify.server';
 
@@ -68,88 +69,128 @@ export const loader = async ({ request }) => {
 
 // Action function to handle file uploads and store creation
 export const action = async ({ request }) => {
-    const { admin } = await authenticate.admin(request);
-    const formData = await request.formData();
-    const intent = formData.get('intent');
+  const { admin } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const intent = formData.get('intent');
 
-    if (intent === 'processFile') {
-        try {
-            const storesData = JSON.parse(formData.get('stores'));
-            const selectedFields = JSON.parse(formData.get('selectedFields'));
-            console.log('Stores Data:', storesData);
-            console.log('Selected Fields:', selectedFields);
+  if (intent === 'processFile') {
+    try {
+      const storesData = JSON.parse(formData.get('stores'));
+      const selectedFields = JSON.parse(formData.get('selectedFields'));
+      
+      // Validate input data
+      if (!Array.isArray(storesData) || storesData.length === 0) {
+        return json({
+          success: false,
+          message: 'No valid store data provided'
+        }, { status: 400 });
+      }
 
-            if (!Array.isArray(storesData) || storesData.length === 0) {
-                return json({ 
-                    success: false,
-                    message: 'No valid store data provided' 
-                }, { status: 400 });
-            }
+      if (!Array.isArray(selectedFields) || selectedFields.length === 0) {
+        return json({
+          success: false,
+          message: 'No fields selected for import'
+        }, { status: 400 });
+      }
 
-            // Check metaobject definition
-            const checkResult = await checkMetaobjectDefinition(admin);
-            if (!checkResult.exists) {
-                // Create definition with selected fields
-                const createDefinitionResult = await createMetaobjectDefinition(admin, selectedFields);
-                if (createDefinitionResult.status !== 200) {
-                    return json({ 
-                        success: false,
-                        message: 'Failed to create metaobject definition',
-                        details: createDefinitionResult.error
-                    }, { status: 500 });
-                }
-            }
+      console.log('Processing:', { selectedFields, storeCount: storesData.length });
 
-            // Create store metaobjects with selected fields
-            const results = [];
-            for (const row of storesData) {
-                // Only include selected fields in the store data
-                const storeData = {};
-                selectedFields.forEach(field => {
-                    storeData[field] = row[field] || '';
-                });
+      // Check existing definition
+      const { exists, definition, fields } = await checkMetaobjectDefinition(admin);
+      console.log('Definition check:', { exists, definition });
 
-                try {
-                    const createResult = await createStoreMetaobject(admin, storeData);
-                    results.push({
-                        storeName: storeData[selectedFields[0]] || 'Unknown', // Use first field as store identifier
-                        success: createResult.status === 200,
-                        error: createResult.status !== 200 ? createResult.error : null
-                    });
-                } catch (err) {
-                    results.push({
-                        storeName: storeData[selectedFields[0]] || 'Unknown',
-                        success: false,
-                        error: err.message
-                    });
-                }
-            }
-
-            const failedStores = results.filter(r => !r.success);
-            if (failedStores.length > 0) {
-                return json({
-                    success: false,
-                    message: `Imported ${results.length - failedStores.length} stores. ${failedStores.length} failed.`,
-                    failedStores
-                }, { status: 207 });
-            }
-
-            return json({ 
-                success: true,
-                message: `Successfully imported ${results.length} stores.` 
-            }, { status: 200 });
-        } catch (error) {
-            return json({ 
-                success: false,
-                message: error.message || 'An unexpected error occurred' 
-            }, { status: 500 });
+      let currentDefinition;
+      
+      // Handle definition creation/update
+      try {
+        if (!exists) {
+          console.log('Creating new definition...');
+          const createResult = await createMetaobjectDefinition(admin, selectedFields);
+          currentDefinition = createResult.definition;
+        } else {
+          const existingFieldNames = fields.map(f => f.name);
+          const newFields = selectedFields.filter(field => !existingFieldNames.includes(field));
+          
+          if (newFields.length > 0) {
+            console.log('Updating definition with new fields:', newFields);
+            const updateResult = await updateMetaobjectDefinition(
+              admin,
+              definition.id,
+              newFields,
+              fields
+            );
+            currentDefinition = updateResult.definition;
+          } else {
+            currentDefinition = definition;
+          }
         }
-    }
+      } catch (error) {
+        return json({
+          success: false,
+          message: `Failed to ${exists ? 'update' : 'create'} definition: ${error.message}`
+        }, { status: 500 });
+      }
 
-    return json({ 
+      // Process stores with batching
+      const batchSize = 5;
+      const results = [];
+      
+      for (let i = 0; i < storesData.length; i += batchSize) {
+        const batch = storesData.slice(i, i + batchSize);
+        const batchPromises = batch.map(async (storeData) => {
+          try {
+            const result = await createStoreMetaobject(
+              admin,
+              storeData,
+              currentDefinition.fieldDefinitions
+            );
+            return {
+              storeName: storeData[selectedFields[0]] || 'Unknown',
+              success: true,
+              id: result.store.id
+            };
+          } catch (error) {
+            console.error('Store creation failed:', error);
+            return {
+              storeName: storeData[selectedFields[0]] || 'Unknown',
+              success: false,
+              error: error.message
+            };
+          }
+        });
+
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+      }
+
+      // Analyze results
+      const successCount = results.filter(r => r.success).length;
+      const failedCount = results.length - successCount;
+      const failedStores = results.filter(r => !r.success);
+
+      return json({
+        success: successCount > 0,
+        message: `Created ${successCount} stores${failedCount > 0 ? `, ${failedCount} failed` : ''}`,
+        results,
+        failedStores: failedCount > 0 ? failedStores : undefined,
+        definition: currentDefinition
+      }, { 
+        status: failedCount > 0 ? 207 : 200 
+      });
+
+    } catch (error) {
+      console.error('Action error:', error);
+      return json({
         success: false,
-        message: 'Invalid request' 
-    }, { status: 400 });
+        message: error.message || 'An unexpected error occurred'
+      }, { status: 500 });
+    }
+  }
+
+  return json({
+    success: false,
+    message: 'Invalid request'
+  }, { status: 400 });
 };
 
 // Dashboard component
