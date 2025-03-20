@@ -100,68 +100,6 @@ const fetchStores = async (admin) => {
   }
 };
 
-const fetchMetaobjectDefinitionDetails = async (admin) => {
-  try {
-    const response = await admin.graphql(
-      `#graphql
-      query {
-        metaobjectDefinitions(first: 10) {
-          edges {
-            node {
-              id
-              type
-              name
-              fieldDefinitions {
-                name
-                key
-                type
-              }
-            }
-          }
-        }
-      }`
-    );
-    logGraphQLResponse(response, 'Fetch metaobject definition details');
-    
-    const data = await response.json();
-    if (data.errors) {
-      return { 
-        status: 500, 
-        error: 'Failed to fetch metaobject definition details', 
-        details: data.errors 
-      };
-    }
-    
-    const storeDefinition = data?.data?.metaobjectDefinitions?.edges?.find(
-      edge => edge.node.type === 'store_location'
-    );
-    
-    if (!storeDefinition) {
-      return { status: 404, exists: false };
-    }
-    
-    // Extract field definitions
-    const fieldDefinitions = storeDefinition.node.fieldDefinitions.map(field => ({
-      name: field.name,
-      key: field.key,
-      type: field.type
-    }));
-    
-    return { 
-      status: 200, 
-      exists: true, 
-      definitionId: storeDefinition.node.id,
-      fieldDefinitions 
-    };
-  } catch (error) {
-    console.error('Fetch definition details error:', error);
-    return { 
-      status: 500, 
-      error: 'Failed to fetch metaobject definition details', 
-      details: error.message 
-    };
-  }
-};
 
 const checkMetaobjectDefinition = async (admin) => {
   try {
@@ -199,7 +137,7 @@ const createMetaobjectDefinition = async (admin, selectedFields) => {
     console.log('Creating definition with fields:', selectedFields);
     
     if (!selectedFields || !selectedFields.length) {
-      throw new Error('No fields provided for definition');
+      return {status: 400, error: 'No fields provided for definition'}
     }
 
     const fieldDefinitions = selectedFields.map(fieldName => ({
@@ -275,75 +213,7 @@ const createMetaobjectDefinition = async (admin, selectedFields) => {
   }
 };
 
-const updateMetaobjectDefinition = async (admin, definitionId, newFields) => {
-  try {
-    // Get existing definition first
-    const definitionResult = await fetchMetaobjectDefinitionDetails(admin);
-    
-    if (definitionResult.status !== 200) {
-      return definitionResult;
-    }
-    
-    // Combine existing fields with new fields, avoiding duplicates
-    const existingKeys = definitionResult.fieldDefinitions.map(field => field.key);
-    const filteredNewFields = newFields.filter(field => !existingKeys.includes(field.key));
-    
-    // If no new fields to add, return success
-    if (filteredNewFields.length === 0) {
-      return { status: 200, message: 'No new fields to add' };
-    }
-    
-    // Prepare combined fields for update
-    const allFields = [...definitionResult.fieldDefinitions, ...filteredNewFields];
-    
-    const response = await admin.graphql(
-      `#graphql
-      mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
-        metaobjectDefinitionUpdate(id: $id, definition: $definition) {
-          metaobjectDefinition {
-            name
-            type
-            fieldDefinitions {
-              name
-              key
-              type
-            }
-          }
-          userErrors {
-            field
-            message
-            code
-          }
-        }
-      }`,
-      {
-        variables: {
-          id: definitionId,
-          definition: {
-            fieldDefinitions: allFields
-          }
-        }
-      }
-    );
-    logGraphQLResponse(response, 'Update metaobject definition');
-    const data = await response.json();
-    if (data.errors || data?.data?.metaobjectDefinitionUpdate?.userErrors?.length > 0) {
-      return {
-        status: 500,
-        error: 'Failed to update metaobject definition',
-        details: data.errors || data?.data?.metaobjectDefinitionUpdate?.userErrors
-      };
-    }
-    
-    return { status: 200, success: true };
-  } catch (error) {
-    return {
-      status: 500,
-      error: 'Failed to update metaobject definition',
-      details: error.message
-    };
-  }
-};
+ 
 
 const createStoreMetaobject = async (admin, storeData, fieldDefinitions) => {
   try {
