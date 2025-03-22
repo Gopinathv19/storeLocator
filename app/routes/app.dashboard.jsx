@@ -29,7 +29,7 @@ import {
     checkMetaobjectDefinition, 
     createMetaobjectDefinition, 
     createStoreMetaobject,
-    processStoreImport
+    fetchMetaobjectDefinitionDetails
 } from '../service/storeService';
 import { authenticate } from '../shopify.server';
 
@@ -37,13 +37,30 @@ import { authenticate } from '../shopify.server';
 export const loader = async ({ request }) => {
     try {
         const { admin } = await authenticate.admin(request);
-        const { status, stores, error } = await fetchStores(admin);
-
-        if (status !== 200) {
-            return json({ error }, { status });
+        
+        // Fetch metaobject definition details
+        const definitionResult = await fetchMetaobjectDefinitionDetails(admin);
+        
+        // Fetch stores if definition exists
+        let stores = [];
+        let error = null;
+        
+        if (definitionResult.exists) {
+            const storesResult = await fetchStores(admin);
+            if (storesResult.status === 200) {
+                stores = storesResult.stores;
+            } else {
+                error = storesResult.error;
+            }
         }
-
-        return json({ stores, admin });
+        
+        return json({ 
+            stores, 
+            definitionExists: definitionResult.exists,
+            fieldDefinitions: definitionResult.exists ? definitionResult.fieldDefinitions : [],
+            definitionId: definitionResult.exists ? definitionResult.definitionId : null,
+            error 
+        });
     } catch (error) {
         return json({ error: 'Failed to load stores' }, { status: 500 });
     }
@@ -58,6 +75,8 @@ export const action = async ({ request }) => {
     if (intent === 'processFile') {
         try {
             const storesData = JSON.parse(formData.get('stores'));
+            const selectedFields = JSON.parse(formData.get('selectedFields'));
+
             if (!Array.isArray(storesData) || storesData.length === 0) {
                 return json({ 
                     success: false,
@@ -65,14 +84,58 @@ export const action = async ({ request }) => {
                 }, { status: 400 });
             }
 
-            const result = await processStoreImport(admin, storesData);
-            
-            return json({
-                success: result.status === 200,
-                message: result.data?.message || result.error,
-                details: result.data || result.details
-            }, { status: result.status });
+            // Check metaobject definition
+            const checkResult = await checkMetaobjectDefinition(admin);
+            if (!checkResult.exists) {
+                // Create definition with selected fields
+                const createDefinitionResult = await createMetaobjectDefinition(admin, selectedFields);
+                if (createDefinitionResult.status !== 200) {
+                    return json({ 
+                        success: false,
+                        message: 'Failed to create metaobject definition',
+                        details: createDefinitionResult.error
+                    }, { status: 500 });
+                }
+            }
 
+            // Create store metaobjects with selected fields
+            const results = [];
+            for (const row of storesData) {
+                // Only include selected fields in the store data
+                const storeData = {};
+                selectedFields.forEach(field => {
+                    storeData[field] = row[field] || '';
+                });
+
+                try {
+                    const createResult = await createStoreMetaobject(admin, storeData);
+                    results.push({
+                        storeName: storeData[selectedFields[0]] || 'Unknown', // Use first field as store identifier
+                        success: createResult.status === 200,
+                        error: createResult.status !== 200 ? createResult.error : null
+                    });
+                } catch (err) {
+                    results.push({
+                        storeName: storeData[selectedFields[0]] || 'Unknown',
+                        success: false,
+                        error: err.message
+                    });
+                }
+            }
+
+            const failedStores = results.filter(r => !r.success);
+            if (failedStores.length > 0) {
+                return json({
+                    success: false,
+                    message: `Imported ${results.length - failedStores.length} stores. ${failedStores.length} failed.`,
+                    failedStores
+                }, { status: 207 });
+            }
+
+            return json({ 
+                success: true,
+                message: `Successfully imported ${results.length} stores.` 
+            }, { status: 200 });
         } catch (error) {
             return json({ 
                 success: false,
@@ -95,13 +158,21 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [isAddingStore, setIsAddingStore] = useState(false);
-    const [parsedCsvData, setParsedCsvData] = useState(null);
-    const [showFieldSelection, setShowFieldSelection] = useState(false);
-    const [csvHeaders, setCsvHeaders] = useState([]);
-    const [selectedFields, setSelectedFields] = useState([]);
-
+    const [csvHeaders,setCsvHeaders] = useState([]);
+    const [selectedFields,setSelectedFields] = useState([]);
+    const [parsedData,setParsedData] = useState(null);
+    const [showFieldSelection,setShowFieldSelection] = useState(false);
+    const [existingFields, setExistingFields] = useState([]);
+    const [newFields, setNewFields] = useState([]);
+    const [showFieldConfirmation, setShowFieldConfirmation] = useState(false);
     const submit = useSubmit();
-    const { stores } = useLoaderData();
+    const { stores, definitionExists, fieldDefinitions, definitionId } = useLoaderData();
+
+    useEffect(() => {
+        if (definitionExists && fieldDefinitions.length > 0) {
+            setExistingFields(fieldDefinitions.map(field => field.name));
+        }
+    }, [definitionExists, fieldDefinitions]);
 
     const handleManualSubmit = async (event) => {
         event.preventDefault();
@@ -169,73 +240,104 @@ export default function Dashboard() {
                 throw new Error('No valid data found in CSV');
             }
 
+            // Get headers from the first row
             const headers = Object.keys(parsedData[0]);
-
             setCsvHeaders(headers);
-            setParsedCsvData(parsedData);
-            setShowFieldSelection(true);
-
-            const formData = new FormData();
-            formData.append('intent', 'processFile');
-            formData.append('stores', JSON.stringify(parsedData));
-
-            // Submit and let Remix handle the response
-            await submit(formData, { 
-                method: 'post',
-                replace: true // This will update the page with the server response
-            });
-
+            setParsedData(parsedData);
+            
+            if (definitionExists) {
+                // For subsequent uploads, check which fields are new
+                const newHeaderFields = headers.filter(header => !existingFields.includes(header));
+                
+                if (newHeaderFields.length > 0) {
+                    setNewFields(newHeaderFields);
+                    setShowFieldConfirmation(true);
+                } else {
+                    // No new fields, just show selection with existing fields pre-selected
+                    setSelectedFields(existingFields.filter(field => headers.includes(field)));
+                    setShowFieldSelection(true);
+                }
+            } else {
+                // First time upload, show all fields for selection
+                setShowFieldSelection(true);
+            }
         } catch (err) {
             setError(err.message || 'Failed to process file');
         } finally {
             setLoading(false);
         }
-    }, [submit]);
+    }, [definitionExists, existingFields]);
 
-    const handleFieldSelection = (header,checked) => {
+    const toggleOpenFileDialog = useCallback(
+        () => setOpenFileDialog((openFileDialog) => !openFileDialog),
+        [],
+    );
+
+    const handleFieldSelection = (header, checked) => {
         setSelectedFields(prev => 
-            checked ? [...prev,header]
-            :prev.filter(field => field !== header)
-        )
-    }
+            checked ? [...prev, header] : prev.filter(field => field !== header)
+        );
+    };
+
+    const handleFieldConfirmation = (confirmed) => {
+        if (confirmed) {
+            // User wants to include new fields
+            setSelectedFields([...existingFields.filter(field => csvHeaders.includes(field)), ...newFields]);
+        } else {
+            // User only wants to use existing fields
+            setSelectedFields(existingFields.filter(field => csvHeaders.includes(field)));
+        }
+        
+        setShowFieldConfirmation(false);
+        setShowFieldSelection(true);
+    };
 
     const handleProcessSelectedFields = async () => {
         try {
             setLoading(true);
             setError(null);
 
-            const fieldDefinitions = selectedFields.map(field => ({
-                name: field,
-                key: field.toLowerCase().replace(/\s+/g, '_'),
-                type: "single_line_text_field"
-            }));
+            // Filter the parsed CSV data to only include selected fields
+            const filteredData = parsedData.map(row => {
+                const filteredRow = {};
+                selectedFields.forEach(field => {
+                    filteredRow[field] = row[field] || '';
+                });
+                return filteredRow;
+            });
 
             const formData = new FormData();
             formData.append('intent', 'processFile');
-            formData.append('fieldDefinitions', JSON.stringify(fieldDefinitions));
-            formData.append('stores', JSON.stringify(parsedCsvData));
+            formData.append('selectedFields', JSON.stringify(selectedFields));
+            formData.append('stores', JSON.stringify(filteredData));
+            
+            if (definitionExists) {
+                formData.append('definitionId', definitionId);
+                formData.append('updateDefinition', JSON.stringify(
+                    selectedFields.some(field => !existingFields.includes(field))
+                ));
+            }
 
             await submit(formData, {
                 method: 'post',
                 replace: true
             });
 
+            // Reset state after processing
             setShowFieldSelection(false);
-            setParsedCsvData(null);
+            setParsedData(null);
             setCsvHeaders([]);
             setSelectedFields([]);
+            setNewFields([]);
 
+            // Switch to Stores tab after successful import
+            setSelected('Stores');
         } catch (err) {
             setError(err.message || 'Failed to process fields');
         } finally {
             setLoading(false);
         }
-    }
-
-    const toggleOpenFileDialog = useCallback(
-        () => setOpenFileDialog((openFileDialog) => !openFileDialog),
-        [],
-    );
+    };
 
     const buttons = [
         { name: 'Stores', icon: StoreIcon },
@@ -411,57 +513,69 @@ export default function Dashboard() {
             {selected === 'Import' && (
                 <BlockStack gap='1000'>
                     <Card title="Import Store Locations" sectioned>
-                        {showFieldSelection ? (
-                            <BlockStack gap='400'>
-                                <Text variant="headingMd">Select Fields to Import</Text>
-                                <BlockStack gap='300'>
-                                    {csvHeaders.map((header) => (
-                                        <Checkbox
-                                            key={header}
-                                            label={header}
-                                            checked={selectedFields.includes(header)}
-                                            onChange={(checked) => handleFieldSelection(header, checked)}
-                                        />
-                                    ))}
-                                </BlockStack>
-                                <InlineStack gap='300'>
-                                    <Button
-                                        primary
-                                        onClick={handleProcessSelectedFields}
-                                        disabled={selectedFields.length === 0}
-                                        loading={loading}
-                                    >
-                                        Process Selected Fields
-                                    </Button>
-                                    <Button
-                                        onClick={() => {
-                                            setShowFieldSelection(false);
-                                            setParsedCsvData(null);
-                                            setCsvHeaders([]);
-                                            setSelectedFields([]);
-                                        }}
-                                    >
-                                        Cancel
-                                    </Button>
-                                </InlineStack>
-                            </BlockStack>
-                        ) : (
-                            <BlockStack gap='1000'> 
-                                <DropZone
-                                    openFileDialog={openFileDialog}
-                                    onDrop={handleDropZoneDrop}
-                                    onFileDialogClose={toggleOpenFileDialog}
-                                >
-                                    <Box padding="4" border="dashed" borderColor="gray">
-                                        <BlockStack>
-                                            <Text variant="bodyMd">Drop CSV file here or click to upload</Text>
-                                        </BlockStack>
-                                    </Box>
-                                </DropZone>
-                            </BlockStack>
-                        )}
+                        <BlockStack gap='1000'> 
+                            <DropZone
+                                openFileDialog={openFileDialog}
+                                onDrop={handleDropZoneDrop}
+                                onFileDialogClose={toggleOpenFileDialog}
+                            >
+                                <Box padding="4" border="dashed" borderColor="gray">
+                                    <BlockStack>
+                                        <Text variant="bodyMd">Drop CSV file here or click to upload</Text>
+                                    </BlockStack>
+                                </Box>
+                            </DropZone>
+                            <Box padding="4" background="surfaceSecondary">
+                                <Text variant="bodyMd" strong>CSV Format Guide</Text>
+                                <Text>Required columns: Store Name, Address, City, State, ZIP, Country, Phone, Email, Hours</Text>
+                                <Text variant="link">Download template</Text>
+                            </Box>
+                        </BlockStack>
                     </Card>
                 </BlockStack>
+            )}
+
+            {showFieldSelection && (
+                <Card sectioned>
+                    <Text variant="headingMd">Select Fields to Import</Text>
+                    <BlockStack gap="300">
+                        {csvHeaders.map((header) => (
+                            <Checkbox
+                                key={header}
+                                label={header}
+                                checked={selectedFields.includes(header)}
+                                onChange={(checked) => handleFieldSelection(header, checked)}
+                            />
+                        ))}
+                    </BlockStack>
+                    <Button
+                        primary
+                        onClick={handleProcessSelectedFields}
+                        disabled={selectedFields.length === 0}
+                    >
+                        Process Selected Fields
+                    </Button>
+                </Card>
+            )}
+
+            {showFieldConfirmation && (
+                <Card sectioned>
+                    <Text variant="headingMd">Confirm Field Selection</Text>
+                    <BlockStack gap="300">
+                        <Checkbox
+                            label="Include new fields"
+                            checked={selectedFields.some(field => !existingFields.includes(field))}
+                            onChange={(checked) => handleFieldConfirmation(checked)}
+                        />
+                    </BlockStack>
+                    <Button
+                        primary
+                        onClick={handleProcessSelectedFields}
+                        disabled={selectedFields.length === 0}
+                    >
+                        Confirm Selection
+                    </Button>
+                </Card>
             )}
         </Page>
     );

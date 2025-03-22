@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "5d9fb0074152e9f75b4e81672c29a0a2"
-application_url = "https://aid-syndication-st-spirits.trycloudflare.com"
+application_url = "https://price-parade-h-pond.trycloudflare.com"
 embedded = true
 name = "reviewSuiteApp"
 handle = "reviewsuiteapp"
@@ -24,9 +24,9 @@ scopes = "read_metaobjects,write_metaobject_definitions,write_metaobjects,write_
 
 [auth]
 redirect_urls = [
-  "https://aid-syndication-st-spirits.trycloudflare.com/auth/callback",
-  "https://aid-syndication-st-spirits.trycloudflare.com/auth/shopify/callback",
-  "https://aid-syndication-st-spirits.trycloudflare.com/api/auth/callback"
+  "https://price-parade-h-pond.trycloudflare.com/auth/callback",
+  "https://price-parade-h-pond.trycloudflare.com/auth/shopify/callback",
+  "https://price-parade-h-pond.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
