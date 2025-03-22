@@ -33,7 +33,7 @@ import {
 } from '../service/storeService';
 import { authenticate } from '../shopify.server';
 
-// Loader function to fetch store data
+ 
 export const loader = async ({ request }) => {
     try {
         const { admin } = await authenticate.admin(request);
@@ -58,7 +58,6 @@ export const loader = async ({ request }) => {
             stores, 
             definitionExists: definitionResult.exists,
             fieldDefinitions: definitionResult.exists ? definitionResult.fieldDefinitions : [],
-            definitionId: definitionResult.exists ? definitionResult.definitionId : null,
             error 
         });
     } catch (error) {
@@ -80,15 +79,19 @@ export const action = async ({ request }) => {
             if (!Array.isArray(storesData) || storesData.length === 0) {
                 return json({ 
                     success: false,
-                    message: 'No valid store data provided' 
-                }, { status: 400 });
+                    message: 'No valid store data provided', 
+                    status: '400'
+                } );
             }
 
-            // Check metaobject definition
+            //  checking whether the metaobject definition exists or not 
+
             const checkResult = await checkMetaobjectDefinition(admin);
             if (!checkResult.exists) {
                 // Create definition with selected fields
+                console.log("*************** selceted fields ******************",selectedFields);
                 const createDefinitionResult = await createMetaobjectDefinition(admin, selectedFields);
+                console.log("*************** createDefinitionResult ******************",createDefinitionResult);
                 if (createDefinitionResult.status !== 200) {
                     return json({ 
                         success: false,
@@ -166,8 +169,7 @@ export default function Dashboard() {
     const [newFields, setNewFields] = useState([]);
     const [showFieldConfirmation, setShowFieldConfirmation] = useState(false);
     const submit = useSubmit();
-    const { stores, definitionExists, fieldDefinitions, definitionId } = useLoaderData();
-
+    const { stores, definitionExists, fieldDefinitions } = useLoaderData();
     useEffect(() => {
         if (definitionExists && fieldDefinitions.length > 0) {
             setExistingFields(fieldDefinitions.map(field => field.name));
@@ -215,8 +217,6 @@ export default function Dashboard() {
     const handleAddStoreClick = () => {
         setIsAddingStore(!isAddingStore);
     };
-
-    
 
     const handleCancelAdd = () => {
         setIsAddingStore(false);
@@ -352,6 +352,7 @@ export default function Dashboard() {
             title="Store Locator"
             subtitle="Manage your store locations and customize your store locator page"
         >
+        {/* this is the button for the all the tabs */}
             <Card>
                 <ButtonGroup segmented>
                     {buttons.map((button) => (
@@ -367,7 +368,7 @@ export default function Dashboard() {
                     ))}
                 </ButtonGroup>
             </Card>
-
+            {/* this is the card for the stores tab */}
             {selected === 'Stores' && (
                 <Card>
                     <InlineStack align="space-between">
@@ -509,7 +510,7 @@ export default function Dashboard() {
                     )}
                 </Card>
             )}
-
+            {/* this is the card for the import tab */}
             {selected === 'Import' && (
                 <BlockStack gap='1000'>
                     <Card title="Import Store Locations" sectioned>
@@ -534,7 +535,7 @@ export default function Dashboard() {
                     </Card>
                 </BlockStack>
             )}
-
+            {/* this is the card for the field selection */}
             {showFieldSelection && (
                 <Card sectioned>
                     <Text variant="headingMd">Select Fields to Import</Text>
@@ -557,7 +558,7 @@ export default function Dashboard() {
                     </Button>
                 </Card>
             )}
-
+            {/* this is the card for the field confirmation */}
             {showFieldConfirmation && (
                 <Card sectioned>
                     <Text variant="headingMd">Confirm Field Selection</Text>

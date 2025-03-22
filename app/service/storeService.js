@@ -30,10 +30,12 @@ export const createMetaobjectDefinition = async (admin, selectedFields) => {
   try {
     // Transform selected fields into field definitions
     const fieldDefinitions = selectedFields.map(field => ({
-      name: field,
-      key: field.toLowerCase().replace(/\s+/g, '_'),
-      type: "single_line_text_field" // Default type for all fields
+      name: field.trim(),
+      key: field.trim().toLowerCase().replace(/\s+/g, '_'),
+      type: "multi_line_text_field"  
     }));
+
+    console.log("*************** fieldDefinitions ******************",fieldDefinitions);
 
     const response = await admin.graphql(
       `#graphql
@@ -45,7 +47,6 @@ export const createMetaobjectDefinition = async (admin, selectedFields) => {
             fieldDefinitions {
               name
               key
-              type
             }
           }
           userErrors {
@@ -60,14 +61,16 @@ export const createMetaobjectDefinition = async (admin, selectedFields) => {
           definition: {
             name: "Store Location",
             type: "store_location",
-            fieldDefinitions: fieldDefinitions
+            fieldDefinitions,
           }
         }
       }
     );
 
     const data = await response.json();
+    console.log("*************** data ******************",data);
     if (data.errors || data?.data?.metaobjectDefinitionCreate?.userErrors?.length > 0) {
+      
       return {
         status: 500,
         error: 'Failed to create metaobject definition',
@@ -151,7 +154,6 @@ const fetchStores = async (admin) =>{
       metaobjects(type: "store_location", first: 50) {
         edges {
           node {
-            handle
             fields {
               key
               value
@@ -165,16 +167,18 @@ const fetchStores = async (admin) =>{
   const data = await response.json();
 
   if(data.errors){
+    console.log("****error in fetching stores **********",data.errors);
     return {status : 500 , error : 'Failed to fetch stores',details : data.errors}
   }
 
-  const stores = data.data.metaobjects.edges.map(edge =>{
+  const stores = data?.data?.metaobjects?.edges?.map(edge =>{
     const store = {};
     edge.node.fields.forEach(field =>{
       store[field.key] = field.value;
     })
     return store;
   });
+  console.log("*************** stores ******************",stores);
   return {status : 200,stores};
 
 }
@@ -184,48 +188,57 @@ export const fetchMetaobjectDefinitionDetails = async (admin) => {
     const response = await admin.graphql(
       `#graphql
       query {
-        metaobjectDefinitions(first: 10) {
-          edges {
-            node {
-              id
-              type
-              fieldDefinitions {
-                name
-                key
-                type
-              }
-            }
+        metaobjectDefinitionByType(type: "store_location") {
+          id
+          name
+          type
+          fieldDefinitions {
+            name
+            key
           }
         }
       }`
     );
     
     const data = await response.json();
+    
     if (data.errors) {
-      return { status: 500, error: 'Failed to fetch metaobject definition details', details: data.errors };
+      console.error('Error fetching metaobject definition:', data.errors);
+      return { 
+        status: 500, 
+        error: 'Failed to fetch metaobject definition details', 
+        details: data.errors 
+      };
     }
     
-    const storeDefinition = data?.data?.metaobjectDefinitions?.edges?.find(edge => edge.node.type === 'store_location');
+    const definition = data?.data?.metaobjectDefinitionByType;
     
-    if (!storeDefinition) {
+    if (!definition) {
       return { status: 404, exists: false };
     }
     
-    // Extract field definitions
-    const fieldDefinitions = storeDefinition.node.fieldDefinitions.map(field => ({
+    // Extract field definitions matching the exact structure returned by the API
+    const fieldDefinitions = definition.fieldDefinitions.map(field => ({
       name: field.name,
-      key: field.key,
-      type: field.type
+      key: field.key
+      // Note: 'type' is not included in the response, so we don't include it here
     }));
     
     return { 
       status: 200, 
       exists: true, 
-      definitionId: storeDefinition.node.id,
+      definitionId: definition.id,
+      name: definition.name,
+      type: definition.type,
       fieldDefinitions 
     };
   } catch (error) {
-    return { status: 500, error: 'Failed to fetch metaobject definition details', details: error.message };
+    console.error('Error in fetchMetaobjectDefinitionDetails:', error.message);
+    return { 
+      status: 500, 
+      error: 'Failed to fetch metaobject definition details', 
+      details: error.message 
+    };
   }
 };
 
