@@ -44,6 +44,7 @@ export const loader = async ({ request }) => {
         // Fetch stores if definition exists
         let stores = [];
         let error = null;
+        let schemas =[];
         
         if (definitionResult.exists) {
             const storesResult = await fetchStores(admin);
@@ -53,19 +54,27 @@ export const loader = async ({ request }) => {
                 error = storesResult.error;
             }
         }
-        
+        // the query to fetch all the schemas
+        const schemasResult = await fetchSchemas(admin);
+        if(schemasResult.status === 200){
+            schemas = schemasResult.schemas;
+        }else{
+            error = schemasResult.error;
+        }
         return json({ 
             stores, 
             definitionExists: definitionResult.exists,
             fieldDefinitions: definitionResult.exists ? definitionResult.fieldDefinitions : [],
-            error 
+            error,
+            schemas
         });
     } catch (error) {
+        console.log(error);
         return json({ error: 'Failed to load stores' }, { status: 500 });
     }
 };
 
-// Action function to handle file uploads and store creation
+ 
 export const action = async ({ request }) => {
     const { admin } = await authenticate.admin(request);
     const formData = await request.formData();
@@ -75,6 +84,7 @@ export const action = async ({ request }) => {
         try {
             const storesData = JSON.parse(formData.get('stores'));
             const selectedFields = JSON.parse(formData.get('selectedFields'));
+            const existingFields = JSON.parse(formData.get('existingFields'));
 
             if (!Array.isArray(storesData) || storesData.length === 0) {
                 return json({ 
@@ -83,14 +93,29 @@ export const action = async ({ request }) => {
                     status: '400'
                 } );
             }
+            
+           // checking whether the user sends the new fields or not
+
+           const newFields = selectedFields.filter(field => !existingFields.includes(field));
+           const hasNewFields = newFields.length > 0;
+           let currentSchema = `schema_1`;
+           let definitionCreated = false;
 
             //  checking whether the metaobject definition exists or not 
 
             const checkResult = await checkMetaobjectDefinition(admin);
-            if (!checkResult.exists) {
+            if (!checkResult.exists || hasNewFields) {
+                const schemas = JSON.parse(formData.get('schemas') || '[]');
+                if(schemas.length > 0){
+                    const  latestSchema = schemas.sort().pop();
+                    const latestNumber = parseInt(latestSchema.split('_')[1]);
+                    currentSchema = `schema_${latestNumber + 1}`;
+                   
+                }
+                console.log("*************** currentSchema ******************",currentSchema);
                 // Create definition with selected fields
                 console.log("*************** selceted fields ******************",selectedFields);
-                const createDefinitionResult = await createMetaobjectDefinition(admin, selectedFields);
+                const createDefinitionResult = await createMetaobjectDefinition(admin, selectedFields, currentSchema);
                 console.log("*************** createDefinitionResult ******************",createDefinitionResult);
                 if (createDefinitionResult.status !== 200) {
                     return json({ 
@@ -99,6 +124,7 @@ export const action = async ({ request }) => {
                         details: createDefinitionResult.error
                     }, { status: 500 });
                 }
+                definitionCreated = true;
             }
 
             // Create store metaobjects with selected fields
@@ -109,7 +135,8 @@ export const action = async ({ request }) => {
                 selectedFields.forEach(field => {
                     storeData[field] = row[field] || '';
                 });
-
+                storeData.schema_reference = currentSchema;
+                console.log("*************** storeData ******************",storeData);
                 try {
                     const createResult = await createStoreMetaobject(admin, storeData);
                     results.push({
@@ -309,16 +336,13 @@ export default function Dashboard() {
             const formData = new FormData();
             formData.append('intent', 'processFile');
             formData.append('selectedFields', JSON.stringify(selectedFields));
+            formData.append('existingFields',JSON.stringify(existingFields));
             formData.append('stores', JSON.stringify(filteredData));
-            
-            if (definitionExists) {
-                formData.append('definitionId', definitionId);
-                formData.append('updateDefinition', JSON.stringify(
-                    selectedFields.some(field => !existingFields.includes(field))
-                ));
-            }
+            // this schemas is get from the fetchschema function
 
-            await submit(formData, {
+            const {schemas} = useLoaderData();
+            formData.append('schemas',JSON.stringify(schemas || []));
+                await submit(formData, {
                 method: 'post',
                 replace: true
             });

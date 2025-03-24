@@ -26,17 +26,16 @@ const checkMetaobjectDefinition = async (admin) => {
   }
 }
 
-export const createMetaobjectDefinition = async (admin, selectedFields) => {
+export const createMetaobjectDefinition = async (admin, selectedFields,schemaName='schema_1') => {
   try {
-    // Transform selected fields into field definitions
-    // name : schema
-    // key : schema_field_name
-    // type : json
+ 
     const fieldDefinitions = selectedFields.map(field => ({
       name: field.trim(),
       key: field.trim().toLowerCase().replace(/\s+/g, '_'),
       type: "multi_line_text_field"  
     }));
+
+    console.log("*************** schemaName ******************",schemaName);
 
     console.log("*************** fieldDefinitions ******************",fieldDefinitions);
 
@@ -62,8 +61,8 @@ export const createMetaobjectDefinition = async (admin, selectedFields) => {
       {
         variables: {
           definition: {
-            name: "Store Location",
-            type: "store_location",
+            name: `${schemaName}`,
+            type: `${schemaName.toLowerCase()}`,
             fieldDefinitions,
           }
         }
@@ -314,6 +313,42 @@ export const updateMetaobjectDefinition = async (admin, definitionId, newFields)
     };
   }
 };
+
+export const fetchSchemas = async (admin) => {
+  try{
+    const response = await admin.graphql(
+       ` #graphql
+       query{
+       metaobjectDefinitions(first : 50){
+       edges{
+       node{
+       type
+       }}}}
+      `
+    );
+    const data = await response.json();
+    if(data.errors){
+      return {
+        status : 500,
+        error : 'Failed to fetch schemas',
+        schemas : []
+      };
+    }
+    const schemas = data?.data?.metaobjectDefinitions?.edges?.map(edge => edge.node.type)
+    .filter(type.startsWith('schema_'));
+    return {
+      status : 200,
+      schemas
+    }
+  }
+  catch(error){
+    return {
+      status : 500,
+      error : 'Failed to fetch schemas',
+      schemas : []
+    };
+  }
+}
 
 export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition,createStoreMetaobject};
 
