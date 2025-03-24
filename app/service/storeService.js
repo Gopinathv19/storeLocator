@@ -29,6 +29,9 @@ const checkMetaobjectDefinition = async (admin) => {
 export const createMetaobjectDefinition = async (admin, selectedFields) => {
   try {
     // Transform selected fields into field definitions
+    // name : schema
+    // key : schema_field_name
+    // type : json
     const fieldDefinitions = selectedFields.map(field => ({
       name: field.trim(),
       key: field.trim().toLowerCase().replace(/\s+/g, '_'),

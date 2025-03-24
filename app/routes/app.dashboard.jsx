@@ -170,9 +170,12 @@ export default function Dashboard() {
     const [showFieldConfirmation, setShowFieldConfirmation] = useState(false);
     const submit = useSubmit();
     const { stores, definitionExists, fieldDefinitions } = useLoaderData();
+
+    // this guy is fethcing the metaobject definition details
     useEffect(() => {
         if (definitionExists && fieldDefinitions.length > 0) {
             setExistingFields(fieldDefinitions.map(field => field.name));
+            console.log("*************** existingFields ******************",existingFields);
         }
     }, [definitionExists, fieldDefinitions]);
 
@@ -246,17 +249,15 @@ export default function Dashboard() {
             setParsedData(parsedData);
             
             if (definitionExists) {
-                // For subsequent uploads, check which fields are new
-                const newHeaderFields = headers.filter(header => !existingFields.includes(header));
-                
-                if (newHeaderFields.length > 0) {
-                    setNewFields(newHeaderFields);
-                    setShowFieldConfirmation(true);
-                } else {
-                    // No new fields, just show selection with existing fields pre-selected
-                    setSelectedFields(existingFields.filter(field => headers.includes(field)));
-                    setShowFieldSelection(true);
-                }
+                // Identify existing and new fields
+                const existingFieldsSet = new Set(existingFields);
+                const newFields = headers.filter(header => !existingFieldsSet.has(header));
+                const existingFieldsInUpload = headers.filter(header => existingFieldsSet.has(header));
+
+                // Set state for existing and new fields
+                setExistingFields(existingFieldsInUpload);
+                setNewFields(newFields);
+                setShowFieldConfirmation(true);
             } else {
                 // First time upload, show all fields for selection
                 setShowFieldSelection(true);
@@ -282,7 +283,8 @@ export default function Dashboard() {
     const handleFieldConfirmation = (confirmed) => {
         if (confirmed) {
             // User wants to include new fields
-            setSelectedFields([...existingFields.filter(field => csvHeaders.includes(field)), ...newFields]);
+            const selectedNewFields = newFields.filter(field => selectedFields.includes(field));
+            setSelectedFields([...existingFields.filter(field => csvHeaders.includes(field)), ...selectedNewFields]);
         } else {
             // User only wants to use existing fields
             setSelectedFields(existingFields.filter(field => csvHeaders.includes(field)));
@@ -296,8 +298,6 @@ export default function Dashboard() {
         try {
             setLoading(true);
             setError(null);
-
-            // Filter the parsed CSV data to only include selected fields
             const filteredData = parsedData.map(row => {
                 const filteredRow = {};
                 selectedFields.forEach(field => {
@@ -323,7 +323,6 @@ export default function Dashboard() {
                 replace: true
             });
 
-            // Reset state after processing
             setShowFieldSelection(false);
             setParsedData(null);
             setCsvHeaders([]);
@@ -561,18 +560,34 @@ export default function Dashboard() {
             {/* this is the card for the field confirmation */}
             {showFieldConfirmation && (
                 <Card sectioned>
-                    <Text variant="headingMd">Confirm Field Selection</Text>
+                    <Text variant="headingMd">Field Selection</Text>
                     <BlockStack gap="300">
-                        <Checkbox
-                            label="Include new fields"
-                            checked={selectedFields.some(field => !existingFields.includes(field))}
-                            onChange={(checked) => handleFieldConfirmation(checked)}
-                        />
+                        <Text variant="bodyMd">Existing Fields:</Text>
+                        {existingFields.map((field) => (
+                            <Text key={field}>{field}</Text>
+                        ))}
+                        <Text variant="bodyMd">New Fields:</Text>
+                        {newFields.map((field) => (
+                            <InlineStack key={field} align="space-between">
+                                <Text>{field}</Text>
+                                <Checkbox
+                                    label="Include"
+                                    checked={selectedFields.includes(field)}
+                                    onChange={(checked) => {
+                                        if (checked) {
+                                            setSelectedFields(prev => [...prev, field]);
+                                        } else {
+                                            setSelectedFields(prev => prev.filter(f => f !== field));
+                                        }
+                                    }}
+                                />
+                            </InlineStack>
+                        ))}
                     </BlockStack>
                     <Button
                         primary
-                        onClick={handleProcessSelectedFields}
-                        disabled={selectedFields.length === 0}
+                        onClick={() => handleFieldConfirmation(true)}
+                        disabled={newFields.length === 0}
                     >
                         Confirm Selection
                     </Button>
