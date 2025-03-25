@@ -1,7 +1,7 @@
 import { json } from '@remix-run/node';
  
 
-const checkMetaobjectDefinition = async (admin) => {
+export const checkMetaobjectDefinition = async (admin) => {
   try {
     const response = await admin.graphql(
       `#graphql
@@ -89,13 +89,28 @@ export const createMetaobjectDefinition = async (admin, selectedFields,schemaNam
   }
 };
 
-const createStoreMetaobject = async (admin, storeData) => {
+export const createStoreMetaobject = async (admin, storeData) => {
   try {
+
+    const schemaType = storeData.schema_reference;
+    if(!schemaType){
+      return {
+        status: 500,
+        error: 'Schema type is required',
+        details: 'Schema type is required'
+      };
+    }
+
+    const {schema_reference, ...fieldData} = storeData;
+
     // Transform store data into fields array dynamically
-    const fields = Object.entries(storeData).map(([key, value]) => ({
+    const fields = Object.entries(fieldData).map(([key, value]) => ({
       key: key.toLowerCase().replace(/\s+/g, '_'),
       value: value?.toString() || ''
     }));
+  
+    console.log("Creating metaobject with schema:", schemaType); // Debug log
+    console.log("Fields:", fields);
 
     const response = await admin.graphql(
       `#graphql
@@ -118,8 +133,7 @@ const createStoreMetaobject = async (admin, storeData) => {
       {
         variables: {
           metaobject: {
-            type: "store_location",
-            handle: `store-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            type: schemaType,
             fields: fields
           }
         }
@@ -149,209 +163,130 @@ const createStoreMetaobject = async (admin, storeData) => {
 };
  
 
-const fetchStores = async (admin) =>{
-  const response = await admin.graphql(
-    `#graphql
-    query {
-      metaobjects(type: "store_location", first: 50) {
-        edges {
-          node {
-            fields {
-              key
-              value
-            }
-          }
+export const fetchStores = async (admin, schemaType) => {
+    try {
+        if(!schemaType){
+            return {
+                status: 400,
+                error: 'Schema type is required',
+                details: 'Schema type is required'
+            };
         }
-      }
-    }`
-  );
+        console.log("Fetching stores for schema type:", schemaType); // Debug log
+        
+        const response = await admin.graphql(
+            `#graphql
+            query($type: String!) {
+                metaobjects(type: $type, first: 50) {
+                    edges {
+                        node {
+                            id
+                            handle
+                            type
+                            fields {
+                                key
+                                value
+                            }
+                        }
+                    }
+                }
+            }`,
+            {
+                variables: {
+                    type: schemaType
+                }
+            }
+        );
 
-  const data = await response.json();
+        const data = await response.json();
 
-  if(data.errors){
-    console.log("****error in fetching stores **********",data.errors);
-    return {status : 500 , error : 'Failed to fetch stores',details : data.errors}
-  }
+        if (data.errors) {
+            console.error("GraphQL Errors:", data.errors); // Debug log
+            return { 
+                status: 500, 
+                error: 'Failed to fetch stores', 
+                details: data.errors 
+            };
+        }
 
-  const stores = data?.data?.metaobjects?.edges?.map(edge =>{
-    const store = {};
-    edge.node.fields.forEach(field =>{
-      store[field.key] = field.value;
-    })
-    return store;
-  });
-  console.log("*************** stores ******************",stores);
-  return {status : 200,stores};
+        const stores = data?.data?.metaobjects?.edges?.map(edge => {
+            const store = {
+                id: edge.node.id,
+                handle: edge.node.handle
+            };
+            edge.node.fields.forEach(field => {
+                store[field.key] = field.value;
+            });
+            return store;
+        }) || [];
 
-}
+        console.log("Fetched stores:", stores); // Debug log
 
-export const fetchMetaobjectDefinitionDetails = async (admin) => {
+        return { 
+            status: 200, 
+            stores 
+        };
+
+    } catch (error) {
+        console.error("Fetch Stores Error:", error); // Debug log
+        return { 
+            status: 500, 
+            error: 'Failed to fetch stores', 
+            details: error.message 
+        };
+    }
+};
+
+export const fetchSchemas = async (admin) => {
   try {
     const response = await admin.graphql(
       `#graphql
       query {
-        metaobjectDefinitionByType(type: "store_location") {
-          id
-          name
-          type
-          fieldDefinitions {
-            name
-            key
+        metaobjectDefinitions(first: 50) {
+          edges {
+            node {
+              type
+              name
+              fieldDefinitions {
+                name
+                key
+              }
+            }
           }
         }
       }`
     );
-    
     const data = await response.json();
-    
     if (data.errors) {
-      console.error('Error fetching metaobject definition:', data.errors);
-      return { 
-        status: 500, 
-        error: 'Failed to fetch metaobject definition details', 
-        details: data.errors 
-      };
-    }
-    
-    const definition = data?.data?.metaobjectDefinitionByType;
-    
-    if (!definition) {
-      return { status: 404, exists: false };
-    }
-    
-    // Extract field definitions matching the exact structure returned by the API
-    const fieldDefinitions = definition.fieldDefinitions.map(field => ({
-      name: field.name,
-      key: field.key
-      // Note: 'type' is not included in the response, so we don't include it here
-    }));
-    
-    return { 
-      status: 200, 
-      exists: true, 
-      definitionId: definition.id,
-      name: definition.name,
-      type: definition.type,
-      fieldDefinitions 
-    };
-  } catch (error) {
-    console.error('Error in fetchMetaobjectDefinitionDetails:', error.message);
-    return { 
-      status: 500, 
-      error: 'Failed to fetch metaobject definition details', 
-      details: error.message 
-    };
-  }
-};
-
-export const updateMetaobjectDefinition = async (admin, definitionId, newFields) => {
-  try {
-    // Get existing definition first
-    const definitionResult = await fetchMetaobjectDefinitionDetails(admin);
-    
-    if (definitionResult.status !== 200) {
-      return definitionResult;
-    }
-    
-    // Combine existing fields with new fields, avoiding duplicates
-    const existingKeys = definitionResult.fieldDefinitions.map(field => field.key);
-    const filteredNewFields = newFields.filter(field => !existingKeys.includes(field.key));
-    
-    // If no new fields to add, return success
-    if (filteredNewFields.length === 0) {
-      return { status: 200, message: 'No new fields to add' };
-    }
-    
-    // Prepare combined fields for update
-    const allFields = [...definitionResult.fieldDefinitions, ...filteredNewFields];
-    
-    const response = await admin.graphql(
-      `#graphql
-      mutation UpdateMetaobjectDefinition($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) {
-        metaobjectDefinitionUpdate(id: $id, definition: $definition) {
-          metaobjectDefinition {
-            name
-            type
-            fieldDefinitions {
-              name
-              key
-              type
-            }
-          }
-          userErrors {
-            field
-            message
-            code
-          }
-        }
-      }`,
-      {
-        variables: {
-          id: definitionId,
-          definition: {
-            fieldDefinitions: allFields
-          }
-        }
-      }
-    );
-    
-    const data = await response.json();
-    if (data.errors || data?.data?.metaobjectDefinitionUpdate?.userErrors?.length > 0) {
       return {
         status: 500,
-        error: 'Failed to update metaobject definition',
-        details: data.errors || data?.data?.metaobjectDefinitionUpdate?.userErrors
+        error: 'Failed to fetch schemas',
+        schemas: []
       };
     }
-    
-    return { status: 200, success: true };
-  } catch (error) {
+
+    // Filter schemas that start with 'schema_' and sort them
+    const schemas = data?.data?.metaobjectDefinitions?.edges
+      ?.map(edge => edge.node)
+      ?.filter(node => node.type.startsWith('schema_'))
+      ?.sort((a, b) => {
+        const numA = parseInt(a.type.split('_')[1]);
+        const numB = parseInt(b.type.split('_')[1]);
+        return numA - numB;
+      });
+
     return {
-      status: 500,
-      error: 'Failed to update metaobject definition',
-      details: error.message
+      status: 200,
+      schemas: schemas || []
     };
   }
-};
-
-export const fetchSchemas = async (admin) => {
-  try{
-    const response = await admin.graphql(
-       ` #graphql
-       query{
-       metaobjectDefinitions(first : 50){
-       edges{
-       node{
-       type
-       }}}}
-      `
-    );
-    const data = await response.json();
-    if(data.errors){
-      return {
-        status : 500,
-        error : 'Failed to fetch schemas',
-        schemas : []
-      };
-    }
-    const schemas = data?.data?.metaobjectDefinitions?.edges?.map(edge => edge.node.type)
-    .filter(type.startsWith('schema_'));
+  catch (error) {
     return {
-      status : 200,
-      schemas
-    }
-  }
-  catch(error){
-    return {
-      status : 500,
-      error : 'Failed to fetch schemas',
-      schemas : []
+      status: 500,
+      error: 'Failed to fetch schemas',
+      schemas: []
     };
   }
 }
-
-export {fetchStores,checkMetaobjectDefinition,createMetaobjectDefinition,createStoreMetaobject};
-
-
 
   

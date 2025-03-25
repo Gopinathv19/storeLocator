@@ -26,10 +26,9 @@ import csvReader from '../helper/csvReader';
 import { json } from '@remix-run/node';
 import { 
     fetchStores, 
-    checkMetaobjectDefinition, 
     createMetaobjectDefinition, 
     createStoreMetaobject,
-    fetchMetaobjectDefinitionDetails
+    fetchSchemas
 } from '../service/storeService';
 import { authenticate } from '../shopify.server';
 
@@ -37,44 +36,65 @@ import { authenticate } from '../shopify.server';
 export const loader = async ({ request }) => {
     try {
         const { admin } = await authenticate.admin(request);
-        
+        if(!admin){
+            return json({ error: 'Unauthorized' }, { status: 401 });
+        }           
         // Fetch metaobject definition details
-        const definitionResult = await fetchMetaobjectDefinitionDetails(admin);
-        
+        const schemaResult = await fetchSchemas(admin);
+        const schemas =  schemaResult.schemas;
+        const latestSchema = schemas.length > 0 ? schemas[schemas.length-1] : null;
+        console.log("*************** latestSchema ******************", latestSchema);
         // Fetch stores if definition exists
         let stores = [];
         let error = null;
-        let schemas =[];
+        let fieldDefinitions =[];
         
-        if (definitionResult.exists) {
-            const storesResult = await fetchStores(admin);
-            if (storesResult.status === 200) {
-                stores = storesResult.stores;
-            } else {
-                error = storesResult.error;
-            }
+        // definition exists status
+
+        const definitionExists = !!latestSchema;
+        if (latestSchema) {
+            try{
+                fieldDefinitions = latestSchema.fieldDefinitions || [];
+                console.log("*************** fieldDefinitions ******************", fieldDefinitions);
+
+                const schemaType = latestSchema.type.toLowerCase();
+                console.log("*************** schemaType ******************", schemaType);
+    
+                const storesResult = await fetchStores(admin,schemaType);
+                console.log("*************** storesResult ****************** \n", storesResult);
+    
+                if (storesResult.status === 200) {
+                    stores = storesResult.stores;
+                } else {
+                    error = storesResult.error;
+                }
+            } catch (error){
+                console.log("*************** error ******************", error);
+            }   
+ 
+ 
         }
-        // the query to fetch all the schemas
-        const schemasResult = await fetchSchemas(admin);
-        if(schemasResult.status === 200){
-            schemas = schemasResult.schemas;
-        }else{
-            error = schemasResult.error;
+        else{
+            console.log("*************** no schema found ******************");
         }
-        return json({ 
-            stores, 
-            definitionExists: definitionResult.exists,
-            fieldDefinitions: definitionResult.exists ? definitionResult.fieldDefinitions : [],
-            error,
-            schemas
-        });
+
+        const response ={
+            stores : stores || [],
+            schemas : schemas || [],
+            latestSchema : latestSchema || null,
+            fieldDefinitions : fieldDefinitions || [],
+            definitionExists : definitionExists || false,
+            error : error || null
+        };
+
+        console.log("*************** response ******************", response);
+        return json(response);
     } catch (error) {
         console.log(error);
         return json({ error: 'Failed to load stores' }, { status: 500 });
     }
 };
 
- 
 export const action = async ({ request }) => {
     const { admin } = await authenticate.admin(request);
     const formData = await request.formData();
@@ -82,41 +102,51 @@ export const action = async ({ request }) => {
 
     if (intent === 'processFile') {
         try {
+            // Parse incoming data
             const storesData = JSON.parse(formData.get('stores'));
             const selectedFields = JSON.parse(formData.get('selectedFields'));
             const existingFields = JSON.parse(formData.get('existingFields'));
+            const schemas = JSON.parse(formData.get('schemas') || '[]');
 
+            // Validate store data
             if (!Array.isArray(storesData) || storesData.length === 0) {
                 return json({ 
                     success: false,
                     message: 'No valid store data provided', 
                     status: '400'
-                } );
+                });
             }
+
+            // Determine if we have new fields
+            const newFields = selectedFields.filter(field => !existingFields.includes(field));
+            const hasNewFields = newFields.length > 0;
+
+            // Initialize schema name
+            let currentSchema = 'schema_1';
+            // Check if metaobject definition exists and if we need to create a new one
+            const schemaExists = schemas.length > 0;
             
-           // checking whether the user sends the new fields or not
-
-           const newFields = selectedFields.filter(field => !existingFields.includes(field));
-           const hasNewFields = newFields.length > 0;
-           let currentSchema = `schema_1`;
-           let definitionCreated = false;
-
-            //  checking whether the metaobject definition exists or not 
-
-            const checkResult = await checkMetaobjectDefinition(admin);
-            if (!checkResult.exists || hasNewFields) {
-                const schemas = JSON.parse(formData.get('schemas') || '[]');
-                if(schemas.length > 0){
-                    const  latestSchema = schemas.sort().pop();
-                    const latestNumber = parseInt(latestSchema.split('_')[1]);
+            if (!schemaExists || hasNewFields) {
+ 
+                if (schemaExists) {
+                    const latestSchema = schemas[schemas.length - 1];
+                    const latestNumber = parseInt(latestSchema.type.split('_')[1]);
                     currentSchema = `schema_${latestNumber + 1}`;
-                   
+                } else {
+                    // First time upload - use schema_1
+                    currentSchema = 'schema_1';
                 }
-                console.log("*************** currentSchema ******************",currentSchema);
-                // Create definition with selected fields
-                console.log("*************** selceted fields ******************",selectedFields);
-                const createDefinitionResult = await createMetaobjectDefinition(admin, selectedFields, currentSchema);
-                console.log("*************** createDefinitionResult ******************",createDefinitionResult);
+
+                console.log("*************** currentSchema ******************", currentSchema);
+                console.log("*************** selected fields ******************", selectedFields);
+
+                // Create new metaobject definition
+                const createDefinitionResult = await createMetaobjectDefinition(
+                    admin, 
+                    selectedFields, 
+                    currentSchema
+                );
+
                 if (createDefinitionResult.status !== 200) {
                     return json({ 
                         success: false,
@@ -124,23 +154,27 @@ export const action = async ({ request }) => {
                         details: createDefinitionResult.error
                     }, { status: 500 });
                 }
-                definitionCreated = true;
             }
 
-            // Create store metaobjects with selected fields
+            // Create store metaobjects
             const results = [];
             for (const row of storesData) {
-                // Only include selected fields in the store data
+                // Prepare store data with selected fields
                 const storeData = {};
                 selectedFields.forEach(field => {
                     storeData[field] = row[field] || '';
                 });
+                
+                // Add schema reference
                 storeData.schema_reference = currentSchema;
-                console.log("*************** storeData ******************",storeData);
+                
+                console.log("*************** storeData ******************", storeData);
+
                 try {
+                    // Create metaobject for store
                     const createResult = await createStoreMetaobject(admin, storeData);
                     results.push({
-                        storeName: storeData[selectedFields[0]] || 'Unknown', // Use first field as store identifier
+                        storeName: storeData[selectedFields[0]] || 'Unknown',
                         success: createResult.status === 200,
                         error: createResult.status !== 200 ? createResult.error : null
                     });
@@ -153,6 +187,7 @@ export const action = async ({ request }) => {
                 }
             }
 
+            // Handle failed stores
             const failedStores = results.filter(r => !r.success);
             if (failedStores.length > 0) {
                 return json({
@@ -162,10 +197,13 @@ export const action = async ({ request }) => {
                 }, { status: 207 });
             }
 
+            // Return success response
             return json({ 
                 success: true,
-                message: `Successfully imported ${results.length} stores.` 
+                message: `Successfully imported ${results.length} stores.`,
+                schema: currentSchema
             }, { status: 200 });
+
         } catch (error) {
             return json({ 
                 success: false,
@@ -196,7 +234,8 @@ export default function Dashboard() {
     const [newFields, setNewFields] = useState([]);
     const [showFieldConfirmation, setShowFieldConfirmation] = useState(false);
     const submit = useSubmit();
-    const { stores, definitionExists, fieldDefinitions } = useLoaderData();
+    const { schemas,stores, definitionExists, fieldDefinitions ,latestSchema} = useLoaderData();
+    const [isLoadingStores, setIsLoadingStores] = useState(true);
 
     // this guy is fethcing the metaobject definition details
     useEffect(() => {
@@ -204,7 +243,17 @@ export default function Dashboard() {
             setExistingFields(fieldDefinitions.map(field => field.name));
             console.log("*************** existingFields ******************",existingFields);
         }
+        return () => {
+            setExistingFields([]);
+            setSelectedFields([]);
+        };
     }, [definitionExists, fieldDefinitions]);
+
+    useEffect(() => {
+        if (stores) {
+            setIsLoadingStores(false);
+        }
+    }, [stores]);
 
     const handleManualSubmit = async (event) => {
         event.preventDefault();
@@ -258,7 +307,10 @@ export default function Dashboard() {
 
     const handleDropZoneDrop = useCallback(async (dropFiles) => {
         if (!dropFiles.length) return;
-
+        if(!dropFiles[0].name.toLowerCase().endsWith('.csv')){
+            setError('No file selected');
+            return;
+        }
         try {
             setLoading(true);
             setError(null);
@@ -302,8 +354,12 @@ export default function Dashboard() {
     );
 
     const handleFieldSelection = (header, checked) => {
+        if(!header){
+            setError('No header selected');
+            return;
+        }
         setSelectedFields(prev => 
-            checked ? [...prev, header] : prev.filter(field => field !== header)
+            checked ? [...new Set([...prev, header])] : prev.filter(field => field !== header)
         );
     };
 
@@ -325,6 +381,17 @@ export default function Dashboard() {
         try {
             setLoading(true);
             setError(null);
+            if(!parsedData || parsedData.length === 0){
+                setError('No data found in CSV');
+                setLoading(false);
+                return;
+            }
+            if(!selectedFields || selectedFields.length === 0){
+                setError('No fields selected');
+                setLoading(false);
+                return;
+            }
+            
             const filteredData = parsedData.map(row => {
                 const filteredRow = {};
                 selectedFields.forEach(field => {
@@ -338,10 +405,8 @@ export default function Dashboard() {
             formData.append('selectedFields', JSON.stringify(selectedFields));
             formData.append('existingFields',JSON.stringify(existingFields));
             formData.append('stores', JSON.stringify(filteredData));
-            // this schemas is get from the fetchschema function
-
-            const {schemas} = useLoaderData();
             formData.append('schemas',JSON.stringify(schemas || []));
+            formData.append('latestSchema',JSON.stringify(latestSchema || null));
                 await submit(formData, {
                 method: 'post',
                 replace: true

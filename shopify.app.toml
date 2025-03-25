@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "5d9fb0074152e9f75b4e81672c29a0a2"
-application_url = "https://handy-entered-bridal-pts.trycloudflare.com"
+application_url = "https://do-california-tobacco-quest.trycloudflare.com"
 embedded = true
 name = "reviewSuiteApp"
 handle = "reviewsuiteapp"
@@ -24,9 +24,9 @@ scopes = "read_metaobjects,write_metaobject_definitions,write_metaobjects,write_
 
 [auth]
 redirect_urls = [
-  "https://handy-entered-bridal-pts.trycloudflare.com/auth/callback",
-  "https://handy-entered-bridal-pts.trycloudflare.com/auth/shopify/callback",
-  "https://handy-entered-bridal-pts.trycloudflare.com/api/auth/callback"
+  "https://do-california-tobacco-quest.trycloudflare.com/auth/callback",
+  "https://do-california-tobacco-quest.trycloudflare.com/auth/shopify/callback",
+  "https://do-california-tobacco-quest.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
