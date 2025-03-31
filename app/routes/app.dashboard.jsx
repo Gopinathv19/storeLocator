@@ -24,12 +24,10 @@ import {
 import { useSubmit, useLoaderData } from '@remix-run/react';
 import csvReader from '../helper/csvReader';
 import { json } from '@remix-run/node';
-import { 
-    fetchStores, 
-    createMetaobjectDefinition, 
-    createStoreMetaobject,
-    fetchSchemas
-} from '../service/storeService';
+ import { createMetaobjectDefinition } from '../graphql/createMetaObjectDefinition';
+import { createStoreMetaobject } from '../graphql/createStoreMetaobject';
+import { fetchSchemas } from '../graphql/fetchSchemas';
+import { fetchStores } from '../graphql/fetchStores';
 import { authenticate } from '../shopify.server';
 
  

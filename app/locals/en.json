@@ -3,12 +3,14 @@
     "links": [
       { "content": "", "path": "/app" },
       { "content": "Dashboard", "path": "/app/dashboard" },
-      { "content": "My Reviews", "path": "/app/my_reviews" },
+ 
       { "content": "Widgets", "path": "/app/widgets" },
-      { "content": "Settings", "path": "/app/settings" },
-      { "content": "InitForm", "path": "/app/init_form" }
+      { "content": "Settings", "path": "/app/settings" }
+ 
     ]
   },
+
+  
 
   "plan_page": {
     "heading": "Welcome to Review Suite",
