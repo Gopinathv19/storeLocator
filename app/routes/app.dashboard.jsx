@@ -219,7 +219,6 @@ export const action = async ({ request }) => {
 // Dashboard component
 export default function Dashboard() {
     const [selected, setSelected] = useState('Stores');
-    const [files, setFiles] = useState([]);
     const [openFileDialog, setOpenFileDialog] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -233,6 +232,7 @@ export default function Dashboard() {
     const [showFieldConfirmation, setShowFieldConfirmation] = useState(false);
     const submit = useSubmit();
     const { schemas,stores, definitionExists, fieldDefinitions ,latestSchema} = useLoaderData();
+    console.log(stores)
     const [isLoadingStores, setIsLoadingStores] = useState(true);
 
     // this guy is fethcing the metaobject definition details
@@ -257,28 +257,21 @@ export default function Dashboard() {
         event.preventDefault();
         setLoading(true);
         setError(null);
-    
+
         try {
             const form = event.currentTarget;
             const formData = new FormData(form);
             formData.append('intent', 'createStore');
 
-            const storeData = {
-                storeName: formData.get('storeName'),
-                address: formData.get('address'),
-                city: formData.get('city'),
-                state: formData.get('state'),
-                zip: formData.get('zip'),
-                country: formData.get('country'),
-                phone: formData.get('phone'),
-                email: formData.get('email'),
-                hours: formData.get('hours'),
-                services: formData.get('services')
-            };
+            // Create store data object using only the fields from fieldDefinitions
+            const storeData = {};
+            fieldDefinitions.forEach(field => {
+                storeData[field.name] = formData.get(field.name);
+            });
 
-            formData.append('store',JSON.stringify(storeData));
+            formData.append('store', JSON.stringify(storeData));
 
-            await submit(formData,{
+            await submit(formData, {
                 method: 'post',
                 replace: true
             });
@@ -467,132 +460,133 @@ export default function Dashboard() {
                         </Button>
                     </InlineStack>
 
-                    {isAddingStore ? (
+                    {isAddingStore && (
                         <Card sectioned>
                             <Form onSubmit={handleManualSubmit}>
                                 <FormLayout>
-                                    <TextField
-                                        label="Store Name"
-                                        name="storeName"
-                                        required
-                                        autoComplete="off"
-                                    />
-                                    <TextField
-                                        label="Address"
-                                        name="address"
-                                        required
-                                        multiline={2}
-                                    />
-                                    <InlineStack gap="400">
-                                        <TextField
-                                            label="City"
-                                            name="city"
-                                            required
-                                        />
-                                        <TextField
-                                            label="State"
-                                            name="state"
-                                            required
-                                        />
-                                        <TextField
-                                            label="ZIP"
-                                            name="zip"
-                                            required
-                                        />
-                                    </InlineStack>
-                                    <TextField
-                                        label="Country"
-                                        name="country"
-                                        required
-                                    />
-                                    <InlineStack gap="400">
-                                        <TextField
-                                            label="Phone"
-                                            name="phone"
-                                            type="tel"
-                                        />
-                                        <TextField
-                                            label="Email"
-                                            name="email"
-                                            type="email"
-                                        />
-                                    </InlineStack>
-                                    <TextField
-                                        label="Hours"
-                                        name="hours"
-                                        multiline={2}
-                                    />
-                                    <TextField
-                                        label="Services"
-                                        name="services"
-                                        multiline={2}
-                                    />
-                                    <InlineStack gap="400">
-                                        <Button 
-                                            submit 
-                                            loading={loading} 
-                                            primary
-                                        >
-                                            Create Store
-                                        </Button>
-                                        <Button 
-                                            onClick={handleCancelAdd}
-                                            destructive
-                                        >
-                                            Cancel
-                                        </Button>
-                                    </InlineStack>
+                                    {/* First field gets full width */}
+                                    {fieldDefinitions[0] && (
+                                        <Box padding="400">
+                                            <TextField
+                                                label={fieldDefinitions[0].name}
+                                                name={fieldDefinitions[0].name}
+                                                required
+                                            />
+                                        </Box>
+                                    )}
+                                    
+                                    {/* Remaining fields in groups of 3 */}
+                                    {fieldDefinitions.length > 1 && (
+                                        <>
+                                            {Array.from({ 
+                                                length: Math.ceil((fieldDefinitions.length - 1) / 3) 
+                                            }).map((_, rowIndex) => {
+                                                const startIndex = (rowIndex * 3) + 1;
+                                                const rowFields = fieldDefinitions.slice(
+                                                    startIndex, 
+                                                    startIndex + 3
+                                                );
+                                                
+                                                return (
+                                                    <InlineStack gap="400" key={rowIndex}>
+                                                        {rowFields.map((field) => (
+                                                            <Box 
+                                                                key={field.name} 
+                                                                width={`${100 / rowFields.length}%`}
+                                                                padding="400"
+                                                            >
+                                                                <TextField
+                                                                    label={field.name}
+                                                                    name={field.name}
+                                                                    required
+                                                                />
+                                                            </Box>
+                                                        ))}
+                                                    </InlineStack>
+                                                );
+                                            })}
+                                        </>
+                                    )}
+                                    
+                                    <Box padding="400">
+                                        <InlineStack gap="400">
+                                            <Button 
+                                                submit 
+                                                loading={loading} 
+                                                primary
+                                            >
+                                                Create Store
+                                            </Button>
+                                            <Button 
+                                                onClick={handleCancelAdd}
+                                                destructive
+                                            >
+                                                Cancel
+                                            </Button>
+                                        </InlineStack>
+                                    </Box>
                                 </FormLayout>
                             </Form>
                         </Card>
+                    )}
+                    {isLoadingStores ? (
+                        <Box padding="400" textAlign="center">
+                            <Text>Loading stores...</Text>
+                        </Box>
+                    ) : !stores || stores.length === 0 ? (
+                        <Box padding="400" textAlign="center">
+                            <Text>No stores found. Add your first store location.</Text>
+                        </Box>
                     ) : (
-                        <>
-                            {loading ? (
-                                <Text>Loading stores...</Text>
-                            ) : error ? (
-                                <Text>Error: {error}</Text>
-                            ) : !stores || stores.length === 0 ? (
-                                <Card>
-                                    <BlockStack gap="400" alignment="center">
-                                        <Text variant="bodyMd" color="subdued">
-                                            No store locations found. Click 'Add Store' to create one.
+                        <Box padding="400">
+                            {stores.map((store, index) => (
+                                <Card key={store.id} sectioned>
+                                    <BlockStack gap="400">
+                                        {/* Store name - full width */}
+                                        <Text variant="headingLg" as="h6">
+                                            {store.store_name || 'Unnamed Store'}
                                         </Text>
+
+                                        {/* Grid layout for other fields */}
+                                        <BlockStack gap="400">
+                                            {/* Process fields in groups of 3 */}
+                                            {Array.from({ 
+                                                length: Math.ceil((fieldDefinitions.length - 1) / 3) 
+                                            }).map((_, rowIndex) => {
+                                                const startIndex = (rowIndex * 3) + 1;
+                                                const rowFields = fieldDefinitions.slice(
+                                                    startIndex, 
+                                                    startIndex + 3
+                                                );
+                                                
+                                                return (
+                                                    <InlineStack gap="400" align="start" key={rowIndex}>
+                                                        {rowFields.map((field) => {
+                                                            const fieldValue = store[field.name.toLowerCase()];
+                                                            return fieldValue ? (
+                                                                <Box 
+                                                                    key={field.name} 
+                                                                    width={`${100 / rowFields.length}%`}
+                                                                >
+                                                                    <BlockStack gap="100">
+                                                                        <Text variant="bodyMd" fontWeight="bold">
+                                                                            {field.name}
+                                                                        </Text>
+                                                                        <Text color="subdued">
+                                                                            {fieldValue}
+                                                                        </Text>
+                                                                    </BlockStack>
+                                                                </Box>
+                                                            ) : null;
+                                                        })}
+                                                    </InlineStack>
+                                                );
+                                            })}
+                                        </BlockStack>
                                     </BlockStack>
                                 </Card>
-                            ) : (
-                                stores.map((store) => (
-                                    <Card key={store.id || store.storeName}>
-                                        <BlockStack gap="400">
-                                            <InlineStack gap="400" align='space-between'>
-                                                <Box>
-                                                    <Text variant="headingMd">{store.store_name}</Text>
-                                                    <Text>{`${store.address}, ${store.city}, ${store.state} ${store.zip}`}</Text>
-                                                </Box>
-                                                <ButtonGroup>
-                                                    <Button size='slim'>Edit</Button>
-                                                    <Button size='slim' destructive>Delete</Button>
-                                                </ButtonGroup>
-                                            </InlineStack>
-                                            <InlineStack gap="1000">
-                                                <Box>
-                                                    <Text variant="headingSm">Hours</Text>
-                                                    <Text>{store.hours}</Text>
-                                                </Box>
-                                                <Box>
-                                                    <Text variant="headingSm">Contact</Text>
-                                                    <Text>{store.phone}</Text>
-                                                    <Text>{store.email}</Text>
-                                                </Box>
-                                                <Box>
-                                                    <Text variant="headingSm">Services</Text>
-                                                    <Text>{store.services}</Text>
-                                                </Box>
-                                            </InlineStack>
-                                        </BlockStack>
-                                    </Card>
-                                ))
-                            )}
-                        </>
+                            ))}
+                        </Box>
                     )}
                 </Card>
             )}
