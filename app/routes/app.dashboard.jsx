@@ -24,13 +24,178 @@ import {
 import { useSubmit, useLoaderData } from '@remix-run/react';
 import csvReader from '../helper/csvReader';
 import { json } from '@remix-run/node';
- import { createMetaobjectDefinition } from '../graphql/createMetaObjectDefinition';
+import { createMetaobjectDefinition } from '../graphql/createMetaObjectDefinition';
 import { createStoreMetaobject } from '../graphql/createStoreMetaobject';
 import { fetchSchemas } from '../graphql/fetchSchemas';
 import { fetchStores } from '../graphql/fetchStores';
 import { authenticate } from '../shopify.server';
 
- 
+const generateStoreLocationsHtml = (stores) => {
+    const htmlContent = `
+      <style>
+        .store-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 20px 0;
+          font-family: Arial, sans-serif;
+        }
+        .store-table th, .store-table td {
+          border: 1px solid #ddd;
+          padding: 12px;
+          text-align: left;
+        }
+        .store-table th {
+          background-color: #f8f9fa;
+          color: #333;
+          font-weight: bold;
+        }
+        .store-table tr:nth-child(even) {
+          background-color: #f8f9fa;
+        }
+        .store-table tr:hover {
+          background-color: #f5f5f5;
+        }
+        .page-title {
+          color: #333;
+          font-family: Arial, sans-serif;
+          margin-bottom: 20px;
+        }
+      </style>
+      <h1 class="page-title">Store Locations</h1>
+      <table class="store-table">
+        <thead>
+          <tr>
+            ${Object.keys(stores[0] || {}).map(key => 
+              `<th>${key.replace(/_/g, ' ').toUpperCase()}</th>`
+            ).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${stores.map(store => `
+            <tr>
+              ${Object.values(store).map(value => 
+                `<td>${value || ''}</td>`
+              ).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    return htmlContent;
+};
+
+const updateStoreLocationsPage = async (admin, stores) => {
+    try {
+        if (!stores || stores.length === 0) {
+            console.error('No stores provided to update page');
+            return false;
+        }
+
+        // Generate HTML content for the page
+        const pageContent = generateStoreLocationsHtml(stores);
+
+        // Check if the page exists - using the correct query structure
+        const pagesQuery = `
+            {
+                pages(first: 10) {
+                    edges {
+                        node {
+                            id
+                            title
+                            handle
+                            body
+                            createdAt
+                            updatedAt
+                        }
+                    }
+                }
+            }
+        `;
+
+        // Execute the query to find existing page
+        const pagesResponse = await admin.graphql(pagesQuery);
+        const pagesData = await pagesResponse.json();
+        console.log('Pages query response:', pagesData);
+
+        // Find the Store Locations page
+        const existingPage = pagesData.data.pages.edges.find(
+            edge => edge.node.title === "Store Locations"
+        )?.node;
+
+        if (existingPage) {
+            // Update existing page
+            const updateMutation = `
+                mutation {
+                    pageUpdate(
+                        input: {
+                            id: "${existingPage.id}",
+                            title: "Store Locations",
+                            body: ${JSON.stringify(pageContent)},
+                            published: true
+                        }
+                    ) {
+                        page {
+                            id
+                            title
+                            body
+                        }
+                        userErrors {
+                            field
+                            message
+                        }
+                    }
+                }
+            `;
+
+            const updateResponse = await admin.graphql(updateMutation);
+            const updateResult = await updateResponse.json();
+            console.log('Update response:', updateResult);
+
+            if (updateResult.data?.pageUpdate?.userErrors?.length > 0) {
+                throw new Error(updateResult.data.pageUpdate.userErrors[0].message);
+            }
+        } else {
+            // Create new page
+            const createMutation = `
+                mutation {
+                    pageCreate(
+                        input: {
+                            title: "Store Locations",
+                            body: ${JSON.stringify(pageContent)},
+                            published: true,
+                            handle: "store-locations"
+                        }
+                    ) {
+                        page {
+                            id
+                            title
+                            body
+                        }
+                        userErrors {
+                            field
+                            message
+                        }
+                    }
+                }
+            `;
+
+            const createResponse = await admin.graphql(createMutation);
+            const createResult = await createResponse.json();
+            console.log('Create response:', createResult);
+
+            if (createResult.data?.pageCreate?.userErrors?.length > 0) {
+                throw new Error(createResult.data.pageCreate.userErrors[0].message);
+            }
+        }
+
+        return true;
+    } catch (error) {
+        console.error('Error updating store locations page:', error);
+        console.error('Full error:', JSON.stringify(error, null, 2));
+        return false;
+    }
+};
+
 export const loader = async ({ request }) => {
     try {
         const { admin } = await authenticate.admin(request);
@@ -63,6 +228,14 @@ export const loader = async ({ request }) => {
     
                 if (storesResult.status === 200) {
                     stores = storesResult.stores;
+                    
+                    // Add this block: Update/Create store locations page when stores exist
+                    if (stores && stores.length > 0) {
+                        const pageUpdateSuccess = await updateStoreLocationsPage(admin, stores);
+                        if (!pageUpdateSuccess) {
+                            console.error('Failed to update store locations page during load');
+                        }
+                    }
                 } else {
                     error = storesResult.error;
                 }
@@ -76,13 +249,13 @@ export const loader = async ({ request }) => {
             console.log("*************** no schema found ******************");
         }
 
-        const response ={
-            stores : stores || [],
-            schemas : schemas || [],
-            latestSchema : latestSchema || null,
-            fieldDefinitions : fieldDefinitions || [],
-            definitionExists : definitionExists || false,
-            error : error || null
+        const response = {
+            stores: stores || [],
+            schemas: schemas || [],
+            latestSchema: latestSchema || null,
+            fieldDefinitions: fieldDefinitions || [],
+            definitionExists: definitionExists || false,
+            error: error || null
         };
 
         console.log("*************** response ******************", response);
@@ -121,11 +294,11 @@ export const action = async ({ request }) => {
 
             // Initialize schema name
             let currentSchema = 'schema_1';
+            
             // Check if metaobject definition exists and if we need to create a new one
             const schemaExists = schemas.length > 0;
             
             if (!schemaExists || hasNewFields) {
- 
                 if (schemaExists) {
                     const latestSchema = schemas[schemas.length - 1];
                     const latestNumber = parseInt(latestSchema.type.split('_')[1]);
@@ -195,6 +368,17 @@ export const action = async ({ request }) => {
                 }, { status: 207 });
             }
 
+            // Fetch all stores after successful import
+            const storesResult = await fetchStores(admin, currentSchema.toLowerCase());
+            if (storesResult.status === 200) {
+                // Update the store locations page with new data
+                const pageUpdateSuccess = await updateStoreLocationsPage(admin, storesResult.stores);
+                
+                if (!pageUpdateSuccess) {
+                    console.error('Failed to update store locations page');
+                }
+            }
+
             // Return success response
             return json({ 
                 success: true,
@@ -234,6 +418,7 @@ export default function Dashboard() {
     const { schemas,stores, definitionExists, fieldDefinitions ,latestSchema} = useLoaderData();
     console.log(stores)
     const [isLoadingStores, setIsLoadingStores] = useState(true);
+    const [formValues, setFormValues] = useState({});
 
     // this guy is fethcing the metaobject definition details
     useEffect(() => {
@@ -253,23 +438,32 @@ export default function Dashboard() {
         }
     }, [stores]);
 
+    const handleInputChange = (value, fieldName) => {
+        setFormValues(prev => ({
+            ...prev,
+            [fieldName]: value
+        }));
+    };
+
     const handleManualSubmit = async (event) => {
         event.preventDefault();
         setLoading(true);
         setError(null);
 
         try {
-            const form = event.currentTarget;
-            const formData = new FormData(form);
-            formData.append('intent', 'createStore');
+            // Format the store data similar to CSV upload format
+            const storeData = [{  // Wrap in array as CSV handles multiple stores
+                ...formValues,
+                schema_reference: latestSchema?.type || 'schema_1' // Add schema reference like CSV upload
+            }];
 
-            // Create store data object using only the fields from fieldDefinitions
-            const storeData = {};
-            fieldDefinitions.forEach(field => {
-                storeData[field.name] = formData.get(field.name);
-            });
-
-            formData.append('store', JSON.stringify(storeData));
+            const formData = new FormData();
+            formData.append('intent', 'processFile');  // Use same intent as CSV
+            formData.append('selectedFields', JSON.stringify(Object.keys(formValues)));
+            formData.append('existingFields', JSON.stringify(fieldDefinitions.map(f => f.name)));
+            formData.append('stores', JSON.stringify(storeData));
+            formData.append('schemas', JSON.stringify(schemas || []));
+            formData.append('latestSchema', JSON.stringify(latestSchema || null));
 
             await submit(formData, {
                 method: 'post',
@@ -277,6 +471,7 @@ export default function Dashboard() {
             });
 
             setIsAddingStore(false);
+            setFormValues({}); // Reset form after successful submission
         } catch (err) {
             setError(err.message || 'Failed to add store');
         } finally {
@@ -290,6 +485,7 @@ export default function Dashboard() {
 
     const handleCancelAdd = () => {
         setIsAddingStore(false);
+        setFormValues({});
     };
 
     const handleButtonClick = useCallback((value) => {
@@ -470,6 +666,8 @@ export default function Dashboard() {
                                             <TextField
                                                 label={fieldDefinitions[0].name}
                                                 name={fieldDefinitions[0].name}
+                                                value={formValues[fieldDefinitions[0].name] || ''}
+                                                onChange={(value) => handleInputChange(value, fieldDefinitions[0].name)}
                                                 required
                                             />
                                         </Box>
@@ -498,6 +696,8 @@ export default function Dashboard() {
                                                                 <TextField
                                                                     label={field.name}
                                                                     name={field.name}
+                                                                    value={formValues[field.name] || ''}
+                                                                    onChange={(value) => handleInputChange(value, field.name)}
                                                                     required
                                                                 />
                                                             </Box>
