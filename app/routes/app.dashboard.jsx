@@ -31,63 +31,416 @@ import { fetchStores } from '../graphql/fetchStores';
 import { authenticate } from '../shopify.server';
 
 const generateStoreLocationsHtml = (stores) => {
+    if (!stores || stores.length === 0) {
+        return `
+            <div class="store-container">
+                <h1>Store Locations</h1>
+                <p class="no-stores">No store locations available.</p>
+            </div>
+        `;
+    }
+
+    // Filter out system fields from display
+    const getDisplayFields = (store) => {
+        return Object.entries(store).filter(([key]) => 
+            !['id', 'handle'].includes(key.toLowerCase()) && 
+            store[key] !== null && 
+            store[key] !== undefined
+        );
+    };
+
+    // Format field name for display (convert snake_case to Title Case)
+    const formatFieldName = (key) => {
+        return key
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+    };
+
+    // Get store name (first field with "name" in it, or first non-null field)
+    const getStoreName = (store) => {
+        const fields = getDisplayFields(store);
+        const nameField = fields.find(([key]) => key.includes('name'));
+        return nameField ? nameField[1] : (fields.length > 0 ? fields[0][1] : 'Unnamed Store');
+    };
+
+    // Get address fields
+    const getAddressFields = (store) => {
+        const addressKeys = ['address', 'street_address', 'street', 'city', 'city_name', 
+                            'state', 'state_code', 'province', 'zip', 'postal_code', 'country', 'country_name'];
+        
+        return getDisplayFields(store)
+            .filter(([key]) => addressKeys.some(addr => key.includes(addr)))
+            .map(([key, value]) => ({ key: formatFieldName(key), value }));
+    };
+
+    // Get contact fields
+    const getContactFields = (store) => {
+        const contactKeys = ['phone', 'email', 'hours', 'business_hours', 'services', 'available_services'];
+        
+        return getDisplayFields(store)
+            .filter(([key]) => contactKeys.some(contact => key.includes(contact)))
+            .map(([key, value]) => ({ key: formatFieldName(key), value }));
+    };
+
     const htmlContent = `
-      <style>
-        .store-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin: 20px 0;
-          font-family: Arial, sans-serif;
-        }
-        .store-table th, .store-table td {
-          border: 1px solid #ddd;
-          padding: 12px;
-          text-align: left;
-        }
-        .store-table th {
-          background-color: #f8f9fa;
-          color: #333;
-          font-weight: bold;
-        }
-        .store-table tr:nth-child(even) {
-          background-color: #f8f9fa;
-        }
-        .store-table tr:hover {
-          background-color: #f5f5f5;
-        }
-        .page-title {
-          color: #333;
-          font-family: Arial, sans-serif;
-          margin-bottom: 20px;
-        }
-      </style>
-      <h1 class="page-title">Store Locations</h1>
-      <table class="store-table">
-        <thead>
-          <tr>
-            ${Object.keys(stores[0] || {}).map(key => 
-              `<th>${key.replace(/_/g, ' ').toUpperCase()}</th>`
-            ).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${stores.map(store => `
-            <tr>
-              ${Object.values(store).map(value => 
-                `<td>${value || ''}</td>`
-              ).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Store Locations</title>
+        <style>
+            :root {
+                --primary-color: #5c6ac4;
+                --primary-light: #f5f6fa;
+                --text-color: #212b36;
+                --text-light: #637381;
+                --border-color: #dfe3e8;
+                --background-light: #f9fafb;
+                --shadow: 0 2px 5px rgba(0,0,0,0.05);
+                --radius: 8px;
+            }
+            
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+                line-height: 1.6;
+                color: var(--text-color);
+                background-color: var(--background-light);
+                padding: 20px;
+            }
+            
+            .store-container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px 0;
+            }
+            
+            .store-container h1 {
+                color: var(--text-color);
+                margin-bottom: 30px;
+                text-align: center;
+                font-size: 2.5rem;
+                font-weight: 600;
+            }
+            
+            .no-stores {
+                text-align: center;
+                font-size: 1.2rem;
+                color: var(--text-light);
+            }
+            
+            .store-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: 25px;
+            }
+            
+            .store-card {
+                background: white;
+                border-radius: var(--radius);
+                overflow: hidden;
+                box-shadow: var(--shadow);
+                transition: transform 0.2s, box-shadow 0.2s;
+                position: relative;
+            }
+            
+            .store-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+            }
+            
+            .store-header {
+                padding: 15px 20px;
+                background: var(--primary-color);
+                color: white;
+            }
+            
+            .store-header h2 {
+                font-size: 1.3rem;
+                font-weight: 600;
+                margin: 0;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            
+            .store-body {
+                padding: 20px;
+            }
+            
+            .store-section {
+                margin-bottom: 15px;
+            }
+            
+            .store-section h3 {
+                font-size: 1rem;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: var(--primary-color);
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 5px;
+            }
+            
+            .store-detail {
+                margin-bottom: 8px;
+            }
+            
+            .store-detail-label {
+                font-weight: 500;
+                color: var(--text-light);
+                font-size: 0.9rem;
+            }
+            
+            .store-detail-value {
+                font-size: 0.95rem;
+            }
+            
+            .store-footer {
+                padding: 15px 20px;
+                border-top: 1px solid var(--border-color);
+                display: flex;
+                justify-content: flex-end;
+            }
+            
+            .view-button {
+                display: inline-block;
+                padding: 8px 16px;
+                background-color: var(--primary-color);
+                color: white;
+                border-radius: 4px;
+                text-decoration: none;
+                font-size: 0.9rem;
+                font-weight: 500;
+                cursor: pointer;
+                transition: background-color 0.2s;
+                border: none;
+                outline: none;
+            }
+            
+            .view-button:hover {
+                background-color: #4959bd;
+            }
+            
+            /* Store details modal */
+            .modal {
+                display: none;
+                position: fixed;
+                z-index: 999;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.5);
+            }
+            
+            .modal-content {
+                background-color: white;
+                margin: 5% auto;
+                padding: 25px;
+                border-radius: var(--radius);
+                width: 90%;
+                max-width: 700px;
+                max-height: 90vh;
+                overflow-y: auto;
+                position: relative;
+            }
+            
+            .close-modal {
+                position: absolute;
+                top: 15px;
+                right: 20px;
+                font-size: 1.5rem;
+                cursor: pointer;
+                color: var(--text-light);
+            }
+            
+            .close-modal:hover {
+                color: var(--text-color);
+            }
+            
+            .modal-header {
+                margin-bottom: 20px;
+                padding-bottom: 15px;
+                border-bottom: 1px solid var(--border-color);
+            }
+            
+            .modal-header h2 {
+                font-size: 1.8rem;
+                color: var(--primary-color);
+                margin: 0;
+            }
+            
+            .modal-body {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+            }
+            
+            @media (max-width: 768px) {
+                .modal-body {
+                    grid-template-columns: 1fr;
+                }
+                
+                .store-grid {
+                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                }
+            }
+            
+            @media (max-width: 480px) {
+                .store-container {
+                    padding: 15px 0;
+                }
+                
+                .store-container h1 {
+                    font-size: 2rem;
+                }
+                
+                .modal-content {
+                    margin: 0;
+                    width: 100%;
+                    height: 100%;
+                    max-height: 100vh;
+                    border-radius: 0;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="store-container">
+            <h1>Store Locations</h1>
+            <div class="store-grid">
+                ${stores.map(store => {
+                    const storeName = getStoreName(store);
+                    const addressFields = getAddressFields(store);
+                    const contactFields = getContactFields(store);
+                    const storeId = store.id || '';
+                    const storeHandle = store.handle || '';
+                    
+                    return `
+                        <div class="store-card" data-id="${storeId}" data-handle="${storeHandle}">
+                            <div class="store-header">
+                                <h2>${storeName}</h2>
+                            </div>
+                            <div class="store-body">
+                                ${addressFields.length > 0 ? `
+                                <div class="store-section">
+                                    <h3>Address</h3>
+                                    ${addressFields.slice(0, 3).map(({ key, value }) => `
+                                        <div class="store-detail">
+                                            <div class="store-detail-label">${key}</div>
+                                            <div class="store-detail-value">${value}</div>
+                                        </div>
+                                    `).join('')}
+                                    ${addressFields.length > 3 ? `<div class="store-detail-more">+${addressFields.length - 3} more...</div>` : ''}
+                                </div>
+                                ` : ''}
+                                
+                                ${contactFields.length > 0 ? `
+                                <div class="store-section">
+                                    <h3>Contact</h3>
+                                    ${contactFields.slice(0, 2).map(({ key, value }) => `
+                                        <div class="store-detail">
+                                            <div class="store-detail-label">${key}</div>
+                                            <div class="store-detail-value">${value}</div>
+                                        </div>
+                                    `).join('')}
+                                    ${contactFields.length > 2 ? `<div class="store-detail-more">+${contactFields.length - 2} more...</div>` : ''}
+                                </div>
+                                ` : ''}
+                            </div>
+                            <div class="store-footer">
+                                <button class="view-button" onclick="showStoreDetails('${storeId}')">View Details</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+        
+        <!-- Store Details Modal -->
+        <div id="storeModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal" onclick="closeModal()">&times;</span>
+                <div class="modal-header">
+                    <h2 id="modalStoreName"></h2>
+                </div>
+                <div class="modal-body" id="modalStoreDetails">
+                    <!-- Details will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            // Store data for the modal
+            const storeData = ${JSON.stringify(stores.map(store => {
+                const fields = getDisplayFields(store);
+                return {
+                    id: store.id || '',
+                    name: getStoreName(store),
+                    fields: fields.map(([key, value]) => ({ 
+                        key: formatFieldName(key), 
+                        value: value 
+                    }))
+                };
+            }))};
+            
+            function showStoreDetails(storeId) {
+                const store = storeData.find(s => s.id === storeId);
+                if (!store) return;
+                
+                const modal = document.getElementById('storeModal');
+                const modalName = document.getElementById('modalStoreName');
+                const modalDetails = document.getElementById('modalStoreDetails');
+                
+                // Set store name
+                modalName.textContent = store.name;
+                
+                // Clear previous details
+                modalDetails.innerHTML = '';
+                
+                // Add all fields to modal
+                let html = '';
+                store.fields.forEach(({ key, value }) => {
+                    html += '<div class="store-detail">' +
+                        '<div class="store-detail-label">' + key + '</div>' +
+                        '<div class="store-detail-value">' + value + '</div>' +
+                        '</div>';
+                });
+                
+                modalDetails.innerHTML = html;
+                
+                // Show modal
+                modal.style.display = 'block';
+                
+                // Close modal when clicking outside
+                window.onclick = function(event) {
+                    if (event.target === modal) {
+                        closeModal();
+                    }
+                };
+            }
+            
+            function closeModal() {
+                document.getElementById('storeModal').style.display = 'none';
+            }
+        </script>
+    </body>
+    </html>
     `;
+
     return htmlContent;
 };
 
 const updateStoreLocationsPage = async (admin, stores) => {
     try {
         if (!stores || stores.length === 0) {
-            console.error('No stores provided to update page');
             return false;
         }
 
@@ -125,21 +478,16 @@ const updateStoreLocationsPage = async (admin, stores) => {
         if (existingPage) {
             // Update existing page
             const updateMutation = `
-                mutation {
-                    pageUpdate(
-                        input: {
-                            id: "${existingPage.id}",
-                            title: "Store Locations",
-                            body: ${JSON.stringify(pageContent)},
-                            published: true
-                        }
-                    ) {
+                mutation UpdatePage($id: ID!, $page: PageUpdateInput!) {
+                    pageUpdate(id: $id, page: $page) {
                         page {
                             id
                             title
+                            handle
                             body
                         }
                         userErrors {
+                            code
                             field
                             message
                         }
@@ -147,7 +495,17 @@ const updateStoreLocationsPage = async (admin, stores) => {
                 }
             `;
 
-            const updateResponse = await admin.graphql(updateMutation);
+            const updateResponse = await admin.graphql(updateMutation, {
+                variables: {
+                    id: existingPage.id,
+                    page: {
+                        title: "Store Locations",
+                        handle: "store-locations",
+                        body: pageContent
+                    }
+                }
+            });
+
             const updateResult = await updateResponse.json();
             console.log('Update response:', updateResult);
 
@@ -157,21 +515,17 @@ const updateStoreLocationsPage = async (admin, stores) => {
         } else {
             // Create new page
             const createMutation = `
-                mutation {
-                    pageCreate(
-                        input: {
-                            title: "Store Locations",
-                            body: ${JSON.stringify(pageContent)},
-                            published: true,
-                            handle: "store-locations"
-                        }
-                    ) {
+                mutation CreatePage($page: PageCreateInput!) {
+                    pageCreate(page: $page) {
                         page {
                             id
                             title
+                            handle
                             body
+                            isPublished
                         }
                         userErrors {
+                            code
                             field
                             message
                         }
@@ -179,7 +533,16 @@ const updateStoreLocationsPage = async (admin, stores) => {
                 }
             `;
 
-            const createResponse = await admin.graphql(createMutation);
+            const createResponse = await admin.graphql(createMutation, {
+                variables: {
+                    page: {
+                        title: "Store Locations",
+                        handle: "store-locations",
+                        body: pageContent,
+                        isPublished: true
+                    }
+                }
+            });
             const createResult = await createResponse.json();
             console.log('Create response:', createResult);
 
@@ -739,53 +1102,73 @@ export default function Dashboard() {
                         </Box>
                     ) : (
                         <Box padding="400">
-                            {stores.map((store, index) => (
-                                <Card key={store.id} sectioned>
-                                    <BlockStack gap="400">
-                                        {/* Store name - full width */}
-                                        <Text variant="headingLg" as="h6">
-                                            {store.store_name || 'Unnamed Store'}
-                                        </Text>
-
-                                        {/* Grid layout for other fields */}
+                            {stores.map((store, index) => {
+                                // Get all available fields from the store object, excluding id and handle
+                                const storeFields = Object.entries(store)
+                                    .filter(([key]) => !['id', 'handle'].includes(key) && store[key] !== null);
+                                
+                                // Get the display name (first available non-null field that contains "name" or "store")
+                                const displayNameEntry = storeFields.find(([key, value]) => 
+                                    (key.includes('name') || key.includes('store')) && value !== null
+                                ) || storeFields[0] || ['', 'Unnamed Store'];
+                                
+                                return (
+                                    <Card key={store.id} sectioned>
                                         <BlockStack gap="400">
-                                            {/* Process fields in groups of 3 */}
-                                            {Array.from({ 
-                                                length: Math.ceil((fieldDefinitions.length - 1) / 3) 
-                                            }).map((_, rowIndex) => {
-                                                const startIndex = (rowIndex * 3) + 1;
-                                                const rowFields = fieldDefinitions.slice(
-                                                    startIndex, 
-                                                    startIndex + 3
-                                                );
-                                                
-                                                return (
-                                                    <InlineStack gap="400" align="start" key={rowIndex}>
-                                                        {rowFields.map((field) => {
-                                                            const fieldValue = store[field.name.toLowerCase()];
-                                                            return fieldValue ? (
-                                                                <Box 
-                                                                    key={field.name} 
-                                                                    width={`${100 / rowFields.length}%`}
-                                                                >
-                                                                    <BlockStack gap="100">
-                                                                        <Text variant="bodyMd" fontWeight="bold">
-                                                                            {field.name}
-                                                                        </Text>
-                                                                        <Text color="subdued">
-                                                                            {fieldValue}
-                                                                        </Text>
-                                                                    </BlockStack>
-                                                                </Box>
-                                                            ) : null;
-                                                        })}
-                                                    </InlineStack>
-                                                );
-                                            })}
+                                            {/* Store name - full width */}
+                                            <Text variant="headingLg" as="h6">
+                                                {displayNameEntry[1] || 'Unnamed Store'}
+                                            </Text>
+
+                                            {/* Grid layout for other fields */}
+                                            <BlockStack gap="400">
+                                                {/* Create rows with 3 fields each, excluding the display name field */}
+                                                {Array.from({ 
+                                                    length: Math.ceil((storeFields.length - 1) / 3) 
+                                                }).map((_, rowIndex) => {
+                                                    const startIndex = rowIndex * 3;
+                                                    // Filter out the display name field and get next 3 fields
+                                                    const rowFields = storeFields
+                                                        .filter(([key]) => key !== displayNameEntry[0])
+                                                        .slice(startIndex, startIndex + 3);
+                                                    
+                                                    if (rowFields.length === 0) return null;
+                                                    
+                                                    return (
+                                                        <InlineStack gap="400" align="start" key={rowIndex}>
+                                                            {rowFields.map(([key, value]) => {
+                                                                if (value === null || value === undefined) return null;
+                                                                
+                                                                // Format field name for display (convert snake_case to Title Case)
+                                                                const displayKey = key
+                                                                    .split('_')
+                                                                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                                                    .join(' ');
+                                                                
+                                                                return (
+                                                                    <Box 
+                                                                        key={key} 
+                                                                        width={`${100 / rowFields.length}%`}
+                                                                    >
+                                                                        <BlockStack gap="100">
+                                                                            <Text variant="bodyMd" fontWeight="bold">
+                                                                                {displayKey}
+                                                                            </Text>
+                                                                            <Text color="subdued">
+                                                                                {value}
+                                                                            </Text>
+                                                                        </BlockStack>
+                                                                    </Box>
+                                                                );
+                                                            })}
+                                                        </InlineStack>
+                                                    );
+                                                })}
+                                            </BlockStack>
                                         </BlockStack>
-                                    </BlockStack>
-                                </Card>
-                            ))}
+                                    </Card>
+                                );
+                            })}
                         </Box>
                     )}
                 </Card>
